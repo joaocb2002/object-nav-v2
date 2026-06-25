@@ -20,9 +20,27 @@ def print_config(config: DictConfig) -> None:
     print(OmegaConf.to_yaml(config, resolve=True))
 
 
-def print_episode(env: habitat.Env, verbose: bool = False) -> None:
+def print_env(env: habitat.Env) -> None:
+    """Print the main Habitat environment attributes."""
+    # Print number of episodes in the iterator
+    print("Number of episodes in iterator:", len(env.episodes))
+
+    for field in (
+        # "current_episode",
+        "episode_iterator",
+        "episode_over",
+        "episode_start_time",
+        # "episodes",
+        #"sim",
+        "task",
+    ):
+        print(f"{field}:", getattr(env, field))
+
+
+def print_episode(ep: habitat.Episode, verbose: bool = False) -> None:
     """Print the current Habitat episode, with optional extra metadata."""
-    ep = env.current_episode
+
+    print("Episode class type:", type(ep))
     goal = getattr(ep.goals[0], "object_category", "unknown")
     fields = ["episode_id", "scene_id", "goal"]
 
