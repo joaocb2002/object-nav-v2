@@ -6,12 +6,10 @@ import os
 # Change working directory to a specific path
 os.chdir("../habitat-lab")
 
-
 FORWARD_KEY="w"
 LEFT_KEY="a"
 RIGHT_KEY="d"
 FINISH="f"
-
 
 def transform_rgb_bgr(image):
     return image[:, :, [2, 1, 0]]
