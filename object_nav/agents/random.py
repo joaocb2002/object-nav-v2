@@ -1,7 +1,5 @@
 import habitat
 import numpy as np
-from typing import Dict
-from habitat.config.default import get_config
 from habitat.core.simulator import Observations
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
 
@@ -18,7 +16,7 @@ class RandomAgent(habitat.Agent):
         dist = observations[self.goal_sensor_uuid][0]
         return dist <= self.dist_threshold_to_stop
 
-    def act(self, observations: Observations) -> Dict[str, int]:
+    def act(self, observations: Observations) -> dict[str, int]:
         if self.is_goal_reached(observations):
             action = HabitatSimActions.stop
         else:
