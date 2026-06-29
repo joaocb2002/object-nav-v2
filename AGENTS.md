@@ -66,6 +66,9 @@ Keep changes small, explicit, and easy to read.
   imports where practical.
 - The YOLO softmax behavior is implemented as an explicit patch in
   `object_nav/perception/patches.py`.
+- Keep `object_nav/perception/` simple: `yolo.py` owns model loading/inference,
+  `observations.py` owns experimental per-frame display/printing helpers.
+- Ultralytics predict precision should use `quantize`, not deprecated `half`.
 
 ## Verification
 
