@@ -56,6 +56,17 @@ Keep changes small, explicit, and easy to read.
       import habitat
   ```
 
+## Perception
+
+- Perception code lives under `object_nav/perception/`.
+- YOLO weights belong under the repo-root `models/yolo/` directory and should
+  not be committed.
+- The default YOLO weights path is `<repo>/models/yolo/yolo11x.pt`.
+- Keep heavyweight dependencies such as Ultralytics/Torch out of lightweight
+  imports where practical.
+- The YOLO softmax behavior is implemented as an explicit patch in
+  `object_nav/perception/patches.py`.
+
 ## Verification
 
 - At minimum, run syntax checks after code edits:
@@ -76,4 +87,3 @@ Keep changes small, explicit, and easy to read.
 - The working tree may contain unrelated user changes.
 - Do not revert, delete, or reformat unrelated files.
 - Keep generated/cache files out of commits unless explicitly requested.
-

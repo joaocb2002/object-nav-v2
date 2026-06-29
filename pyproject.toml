@@ -8,5 +8,8 @@ version = "0.1.0"
 description = "ObjectNav experiments and utilities."
 requires-python = ">=3.9"
 
+[project.optional-dependencies]
+perception = ["ultralytics", "torch", "torchvision"]
+
 [tool.setuptools.packages.find]
 include = ["object_nav*"]
