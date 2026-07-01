@@ -83,11 +83,9 @@ def show_depth_rgb_detections(
     result: DetectionResult,
     *,
     window_name: str = "Depth + RGB detections",
-    delay_ms: int = 250,
 ) -> None:
     """Show depth and YOLO detections with OpenCV."""
     cv2.imshow(window_name, plot_depth_rgb_detections(rgb, depth, result))
-    cv2.waitKey(delay_ms)
 
 
 def close_perception_windows() -> None:
