@@ -2,16 +2,33 @@
 
 `object_nav.mapping` turns Habitat depth observations into a sparse 3D geometry
 map and renders debugging views from that map. The package is intentionally split
-into three layers:
+by responsibility:
 
 - `voxel.py`: Habitat-free mapping math and storage.
 - `habitat.py`: Habitat adapter code for depth units, camera pose, camera
   intrinsics, and ground-truth top-down map metrics.
 - `visualization.py`: OpenCV renderers for the voxel map and Habitat map.
+- `point_cloud.py`: optional RGB-D point-cloud debugging utilities.
 
 The design keeps the reusable mapping core independent from Habitat. `main.py`
 owns the experiment flow and calls the adapter at the points where Habitat data
 exists.
+
+## Public Imports
+
+The package root exports the Habitat-free voxel primitives:
+
+```python
+from object_nav.mapping import SparseVoxelMap, TopDownGrid, raycast_voxels
+```
+
+Habitat and debug helpers are imported from their modules so lightweight imports
+do not pull in optional runtime dependencies:
+
+```python
+from object_nav.mapping.habitat import HabitatVoxelMapper, show_habitat_topdown_map
+from object_nav.mapping.point_cloud import HabitatPointCloudRecorder
+```
 
 ## Runtime Flow
 
@@ -30,8 +47,9 @@ In `scripts/main.py`, each episode creates or resets the same pieces:
    - `show_depth_rgb_detections(...)` shows Habitat depth beside RGB detections.
    - `show_navigation_maps(voxel_mapper.render_maps(...))` shows:
      - a front-facing 3D voxel view from the robot camera,
-     - our voxel-derived egocentric top-down map,
-     - Habitat's ground-truth top-down map.
+     - our voxel-derived egocentric top-down map.
+   - `show_habitat_topdown_map(...)` independently shows Habitat's
+     ground-truth top-down map when desired.
    - the active agent returns an action, such as `move_forward`.
    - `env.step(action)` advances Habitat.
 
@@ -157,19 +175,131 @@ the official `TopDownMap` metric, and `render_ground_truth_topdown_bgr(...)`
 renders the current `env.get_metrics()["top_down_map"]`. Habitat updates that
 measure during the episode; it is not restricted to the final step.
 
+## Habitat Metrics
+
+The ObjectNav benchmark config used by `scripts/main.py` already includes the
+standard ObjectNav measurements:
+
+- `distance_to_goal`
+- `success`
+- `spl`
+- `soft_spl`
+- `distance_to_goal_reward`
+
+`enable_topdown_map_measure(cfg)` adds `top_down_map` manually because it is a
+visual debugging measurement, not required for the agent action loop. Habitat
+also provides navigation measurements such as `collisions` and step-count style
+measurements in its task registry/config store; add them through the Habitat
+config when a run needs them, rather than duplicating that state in this package.
+
 ## Rendered Views
 
-`HabitatVoxelMapper.render_maps(...)` returns one BGR image made of three panels:
+`HabitatVoxelMapper.render_maps(...)` returns one BGR image made of two voxel
+panels:
 
 1. `render_voxel_camera_view_bgr(...)`
    Projects observed 3D voxel centers into the current robot camera. This is a
    direct egocentric 2D image of the 3D voxel structure.
-2. `render_voxel_topdown_from_agent_bgr(...)`
-   Samples our top-down projection in an egocentric frame, with the robot in the
-   center and forward direction up.
-3. `render_ground_truth_topdown_bgr(...)`
-   Uses Habitat's `TopDownMap` visualization utilities to draw the official map,
-   current agent marker, path/goal overlays, and fog-of-war when configured.
+2. `render_full_voxel_topdown_from_agent_bgr(...)`
+   Samples the full voxel-derived top-down projection in a robot-oriented frame,
+   keeping robot-forward upward while showing the whole explored map.
+`show_habitat_topdown_map(...)` is intentionally separate. It uses Habitat's
+`TopDownMap` visualization utilities to draw the official map, current agent
+marker, path/goal overlays, and fog-of-war when configured.
+
+## Point Cloud Debugging
+
+`HabitatPointCloudRecorder` in `point_cloud.py` is an optional debugging helper
+for validating RGB-D back-projection independently from voxel occupancy updates.
+It is not part of the active `scripts/main.py` loop right now because it can be
+memory- and time-heavy.
+
+To re-enable it in an entrypoint, add:
+
+```python
+from object_nav.mapping.point_cloud import HabitatPointCloudRecorder
+from object_nav.utils import make_run_output_dir
+```
+
+Create it beside the voxel mapper:
+
+```python
+point_cloud = HabitatPointCloudRecorder(cfg)
+point_cloud_paths = []
+```
+
+Reset it once per episode:
+
+```python
+point_cloud.reset()
+```
+
+Integrate it after the voxel mapper has consumed the same observation:
+
+```python
+point_cloud.integrate(env, obs)
+```
+
+The recorder:
+
+- converts Habitat depth back to meters,
+- uses the same configured camera intrinsics as the voxel mapper,
+- uses the same `depth_camera_transform(...)` frame conversion,
+- samples RGB-D pixels,
+- back-projects them into world coordinates,
+- stores RGB colors from `obs["rgb"]`.
+
+At the end of the episode, save into a run directory:
+
+```python
+output_dir = make_run_output_dir(
+    script_path=__file__,
+    scene_id=SCENE,
+    episode_id=str(env.current_episode.episode_id),
+)
+ply_path = point_cloud.save(output_dir / "point_cloud.ply")
+point_cloud_paths.append(ply_path)
+```
+
+After the Habitat environment and OpenCV windows close, inspect saved clouds
+interactively:
+
+```python
+for ply_path in point_cloud_paths:
+    point_cloud.show_interactive(ply_path)
+```
+
+`save(...)` writes an ASCII PLY file with `red`, `green`, and `blue` values
+copied from the corresponding Habitat RGB pixels. The OpenCV-only helpers
+convert RGB to BGR only when drawing PNG images.
+
+The run directory is created under this repository's `outputs/` folder by
+default. The directory name includes the timestamp, scene id, episode id, and
+script name, and it is built from the repo root rather than the current working
+directory. That matters because `main.py` changes directory into the local
+Habitat-Lab checkout before creating the environment.
+
+`show_interactive(...)` does not create another artifact. It tries to open a PLY
+or in-memory point cloud in an Open3D interactive viewer. If Open3D cannot create
+a window, open the saved PLY in CloudCompare, MeshLab, or run:
+
+```bash
+python3 tests/plot_point_cloud.py outputs/.../point_cloud.ply
+```
+
+The lower-level plotting function also works without the recorder:
+
+```python
+show_interactive_point_cloud(Path("cloud.ply"))
+show_interactive_point_cloud((points, rgb_colors))
+```
+
+`save_static_preview(...)` and `render_point_cloud_summary_bgr(...)` still exist
+for quick top/front/side PNG snapshots, but they are no longer the main
+inspection path.
+
+This helper is intentionally isolated so it can be removed from `main.py` later
+without affecting the voxel map.
 
 ## Public Query API
 
@@ -202,6 +332,7 @@ These operate on voxel indices, not world points. Use
 - top-down projection states,
 - Habitat depth normalization and intrinsics,
 - agent key bindings and random action selection,
+- RGB-D point cloud back-projection and PLY writing/loading,
 - camera-view voxel rendering smoke behavior.
 
 The tests do not require a running Habitat simulator. Habitat-specific runtime

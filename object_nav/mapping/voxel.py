@@ -380,27 +380,33 @@ class SparseVoxelMap:
         )
 
     def is_observed(self, voxel_index: VoxelIndex) -> bool:
+        """Return whether a voxel has received any sensor evidence."""
         voxel = self.get_voxel(voxel_index)
         return False if voxel is None else voxel.observed
 
     def is_free(self, voxel_index: VoxelIndex) -> bool:
+        """Return whether a voxel is observed and below the free threshold."""
         voxel = self.get_voxel(voxel_index)
         return False if voxel is None else self._voxel_is_free(voxel)
 
     def is_occupied(self, voxel_index: VoxelIndex) -> bool:
+        """Return whether a voxel is observed and above the occupied threshold."""
         voxel = self.get_voxel(voxel_index)
         return False if voxel is None else self._voxel_is_occupied(voxel)
 
     def occupancy_probability(self, voxel_index: VoxelIndex) -> Optional[float]:
+        """Return occupancy probability for observed voxels, otherwise ``None``."""
         voxel = self.get_voxel(voxel_index)
         if voxel is None or not voxel.observed:
             return None
         return float(logodds_to_prob(voxel.occupancy_logodds))
 
     def num_allocated_blocks(self) -> int:
+        """Return the number of sparse blocks currently allocated."""
         return len(self.blocks)
 
     def num_observed_voxels(self) -> int:
+        """Return the number of voxels touched by sensor rays."""
         return sum(int(np.count_nonzero(block.observed)) for block in self.blocks.values())
 
     def get_allocated_bounds(self) -> Optional[Tuple[VoxelIndex, VoxelIndex]]:
@@ -419,9 +425,11 @@ class SparseVoxelMap:
         )
 
     def iter_allocated_blocks(self) -> Iterator[Tuple[BlockIndex, VoxelBlock]]:
+        """Iterate over allocated sparse blocks and their block indices."""
         yield from self.blocks.items()
 
     def iter_observed_voxels(self) -> Iterator[Tuple[VoxelIndex, GeometryVoxel]]:
+        """Iterate over observed voxels as global voxel indices and snapshots."""
         for block_index, block in self.blocks.items():
             for local in np.argwhere(block.observed):
                 lx, ly, lz = (int(local[0]), int(local[1]), int(local[2]))
@@ -436,6 +444,7 @@ class SparseVoxelMap:
         self,
         threshold: Optional[float] = None,
     ) -> Iterator[Tuple[VoxelIndex, GeometryVoxel]]:
+        """Iterate over observed voxels at or above an occupancy threshold."""
         min_logodds = self._occupied_logodds if threshold is None else prob_to_logodds(threshold)
         for index, voxel in self.iter_observed_voxels():
             if voxel.occupancy_logodds >= min_logodds:
@@ -445,6 +454,7 @@ class SparseVoxelMap:
         self,
         threshold: Optional[float] = None,
     ) -> Iterator[Tuple[VoxelIndex, GeometryVoxel]]:
+        """Iterate over observed voxels at or below a free-space threshold."""
         max_logodds = self._free_logodds if threshold is None else prob_to_logodds(threshold)
         for index, voxel in self.iter_observed_voxels():
             if voxel.occupancy_logodds <= max_logodds:

@@ -89,11 +89,10 @@ class HabitatVoxelMapper:
         )
 
     def render_maps(self, env: Any, *, output_height: int) -> np.ndarray:
-        """Render voxel and Habitat top-down maps side by side as a BGR image."""
+        """Render the 3D voxel POV and voxel-derived top-down map side by side."""
         from object_nav.mapping.visualization import (
-            render_ground_truth_topdown_bgr,
+            render_full_voxel_topdown_from_agent_bgr,
             render_voxel_camera_view_bgr,
-            render_voxel_topdown_from_agent_bgr,
         )
 
         agent_state = env.sim.get_agent_state()
@@ -108,18 +107,12 @@ class HabitatVoxelMapper:
             output_height=output_height,
             max_depth=self.config.max_ray_length,
         )
-        voxel_image = render_voxel_topdown_from_agent_bgr(
+        voxel_image = render_full_voxel_topdown_from_agent_bgr(
             self.build_topdown_projection(env),
             agent_state,
-            view_size_m=self.config.local_view_size_m,
-            pixels_per_meter=self.config.local_pixels_per_meter,
             output_height=output_height,
         )
-        ground_truth_image = render_ground_truth_topdown_bgr(
-            env.get_metrics().get("top_down_map"),
-            output_height=output_height,
-        )
-        return _hstack_same_height([camera_image, voxel_image, ground_truth_image])
+        return _hstack_same_height([camera_image, voxel_image])
 
     def _new_voxel_map(self) -> SparseVoxelMap:
         return SparseVoxelMap(
@@ -127,6 +120,31 @@ class HabitatVoxelMapper:
             block_size=self.config.block_size,
             max_ray_length=self.config.max_ray_length,
         )
+
+
+def render_habitat_topdown_map(env: Any, *, output_height: int) -> np.ndarray:
+    """Render Habitat's ground-truth TopDownMap metric as a BGR image."""
+    from object_nav.mapping.visualization import render_ground_truth_topdown_bgr
+
+    return render_ground_truth_topdown_bgr(
+        env.get_metrics().get("top_down_map"),
+        output_height=output_height,
+    )
+
+
+def show_habitat_topdown_map(
+    env: Any,
+    *,
+    output_height: int,
+    window_name: str = "Habitat map",
+) -> None:
+    """Show Habitat's ground-truth TopDownMap metric in its own window."""
+    from object_nav.mapping.visualization import show_navigation_maps
+
+    show_navigation_maps(
+        render_habitat_topdown_map(env, output_height=output_height),
+        window_name=window_name,
+    )
 
 
 def enable_topdown_map_measure(

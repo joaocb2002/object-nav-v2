@@ -1,4 +1,4 @@
-"""Sparse mapping utilities for ObjectNav experiments."""
+"""Habitat-free sparse mapping primitives for ObjectNav experiments."""
 
 from object_nav.mapping.voxel import (
     FREE,
