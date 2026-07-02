@@ -22,7 +22,6 @@ def print_config(config: DictConfig) -> None:
 
 def print_env(env: habitat.Env) -> None:
     """Print the main Habitat environment attributes."""
-    # Print number of episodes in the iterator
     print("Number of episodes in iterator:", len(env.episodes))
 
     for field in (
@@ -31,7 +30,7 @@ def print_env(env: habitat.Env) -> None:
         "episode_over",
         "episode_start_time",
         # "episodes",
-        #"sim",
+        # "sim",
         "task",
     ):
         print(f"{field}:", getattr(env, field))
