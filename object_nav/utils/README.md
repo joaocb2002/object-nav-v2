@@ -25,6 +25,34 @@ with habitat.Env(config=cfg) as env:
     print_episode(env.current_episode)
 ```
 
+## Habitat Dataset Helpers
+
+`datasets.py` provides small helpers for ObjectNav content shards:
+
+- `list_objectnav_scene_ids(content_dir)`: list scene ids from `*.json.gz`
+  files, stripping the full `.json.gz` suffix.
+- `choose_random_objectnav_scene(content_dir, rng=None)`: choose one scene id
+  from that list.
+
+Typical `scripts/main.py` usage:
+
+```python
+import random
+
+from object_nav.utils import choose_random_objectnav_scene
+
+RUN_SEED = time.time_ns() % (2**32)
+SCENE_CONTENT_DIR = "data/datasets/objectnav/hm3d/v2/train/content"
+SCENE = choose_random_objectnav_scene(SCENE_CONTENT_DIR, rng=random.Random(RUN_SEED))
+
+with read_write(cfg):
+    cfg.habitat.seed = RUN_SEED
+    cfg.habitat.dataset.content_scenes = [SCENE]
+```
+
+This keeps each run to one scene while still letting Habitat sample the episode
+from that selected scene.
+
 ## Run Output Directories
 
 `artifacts.py` provides `make_run_output_dir(...)` for debug artifacts such as
