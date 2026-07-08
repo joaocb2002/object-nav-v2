@@ -95,11 +95,12 @@ def render_full_voxel_topdown_from_agent_bgr(
     agent_state: object,
     *,
     output_height: int,
+    label: str = "Voxel map",
 ) -> np.ndarray:
     """Render the whole top-down map in robot-local orientation."""
     if topdown.data.size == 0:
         image = np.full((output_height, output_height, 3), 45, dtype=np.uint8)
-        _draw_label(image, "Voxel map")
+        _draw_label(image, label)
         return image
 
     agent_position = np.asarray(agent_state.position, dtype=np.float64)
@@ -116,7 +117,7 @@ def render_full_voxel_topdown_from_agent_bgr(
     resized, scale = _fit_to_height_nearest(image, output_height)
     center = _agent_center_in_local_bounds(local_bounds, topdown.resolution, scale)
     _draw_agent_marker(resized, center=center)
-    _draw_label(resized, "Voxel map")
+    _draw_label(resized, label)
     _draw_legend(
         resized,
         [
@@ -162,64 +163,78 @@ def render_voxel_camera_view_bgr(
     image_shape: tuple[int, int],
     output_height: int,
     max_depth: Optional[float] = None,
+    label: str = "3D voxel view",
 ) -> np.ndarray:
     """Render observed 3D voxels from the robot camera perspective."""
     height, width = image_shape
     image = np.full((height, width, 3), 20, dtype=np.uint8)
-    occupied = list(voxel_map.iter_occupied_voxels())
-    if not occupied:
-        _draw_label(image, "3D voxel view")
+    centers_world = _occupied_voxel_centers(voxel_map)
+    if len(centers_world) == 0:
+        _draw_label(image, label)
         return _fit_to_height(image, output_height)
 
     T_camera_world = np.linalg.inv(T_world_camera)
-    occupied_heights = np.array(
-        [
-            voxel_map.voxel_index_to_world_center(index)[1]
-            for index, _ in occupied
-        ],
-        dtype=np.float64,
-    )
-    min_height = float(occupied_heights.min())
-    max_height = float(occupied_heights.max())
+    min_height = float(centers_world[:, 1].min())
+    max_height = float(centers_world[:, 1].max())
+    centers_h = np.ones((len(centers_world), 4), dtype=np.float64)
+    centers_h[:, :3] = centers_world
+    centers_camera = centers_h @ T_camera_world.T
+    z = centers_camera[:, 2]
+    valid = z > 0.0
+    if max_depth is not None:
+        valid &= z <= max_depth
+    if np.any(valid):
+        safe_z = np.where(z > 0.0, z, 1.0)
+        u = np.rint(
+            intrinsics.fx * centers_camera[:, 0] / safe_z + intrinsics.cx
+        ).astype(np.int32)
+        v = np.rint(
+            intrinsics.fy * centers_camera[:, 1] / safe_z + intrinsics.cy
+        ).astype(np.int32)
+        valid &= (u >= 0) & (u < width) & (v >= 0) & (v < height)
+
     projected = []
-    for index, _ in occupied:
-        center_world = voxel_map.voxel_index_to_world_center(index)
-        center_camera = T_camera_world @ np.array(
-            [center_world[0], center_world[1], center_world[2], 1.0],
-            dtype=np.float64,
-        )
-        x, y, z = center_camera[:3]
-        if z <= 0.0 or (max_depth is not None and z > max_depth):
-            continue
-
-        u = int(round(intrinsics.fx * x / z + intrinsics.cx))
-        v = int(round(intrinsics.fy * y / z + intrinsics.cy))
-        if u < 0 or u >= width or v < 0 or v >= height:
-            continue
-
-        radius = int(
-            round(voxel_map.voxel_size * intrinsics.fx / max(z, 0.01) * 0.5)
-        )
-        radius = max(1, min(radius, 5))
-        color = _occupied_depth_height_color_bgr(
-            center_world[1],
+    if np.any(valid):
+        valid_indices = np.flatnonzero(valid)
+        depths = z[valid_indices]
+        radii = np.rint(
+            voxel_map.voxel_size * intrinsics.fx / np.maximum(depths, 0.01) * 0.5
+        ).astype(np.int32)
+        radii = np.clip(radii, 1, 5)
+        colors = _occupied_depth_height_colors_bgr(
+            centers_world[valid_indices, 1],
             min_height,
             max_height,
-            depth=z,
+            depths=depths,
             max_depth=max_depth,
         )
-        projected.append((z, u, v, radius, color))
+        projected = list(
+            zip(
+                depths,
+                u[valid_indices],
+                v[valid_indices],
+                radii,
+                colors,
+            )
+        )
 
-    for _, u, v, radius, color in sorted(projected, reverse=True):
+    for _, u_px, v_px, radius, color in sorted(
+        projected,
+        key=lambda item: item[0],
+        reverse=True,
+    ):
         cv2.rectangle(
             image,
-            (max(0, u - radius), max(0, v - radius)),
-            (min(width - 1, u + radius), min(height - 1, v + radius)),
-            color,
+            (max(0, int(u_px) - int(radius)), max(0, int(v_px) - int(radius))),
+            (
+                min(width - 1, int(u_px) + int(radius)),
+                min(height - 1, int(v_px) + int(radius)),
+            ),
+            tuple(int(channel) for channel in color),
             thickness=-1,
         )
 
-    _draw_label(image, "3D voxel view")
+    _draw_label(image, label)
     legend_height = (min_height + max_height) * 0.5
     legend_far_depth = 1.0 if max_depth is None else max_depth
     _draw_legend(
@@ -272,6 +287,69 @@ def render_ground_truth_topdown_bgr(
     return image_bgr
 
 
+def render_logodds_difference_histogram_bgr(
+    histogram: Optional[object],
+    *,
+    output_height: int,
+    width: int = 360,
+    label: str = "|log-odds diff|",
+) -> np.ndarray:
+    """Render a compact histogram panel for voxel-map log-odds differences."""
+    image = np.full((output_height, width, 3), 28, dtype=np.uint8)
+    _draw_label(image, label)
+
+    if histogram is None:
+        _draw_small_text(image, "No comparison yet", (18, 62))
+        return image
+
+    counts = np.asarray(histogram.counts, dtype=np.float64)
+    edges = np.asarray(histogram.bin_edges, dtype=np.float64)
+    total = int(histogram.total_different)
+    if counts.size == 0 or edges.size != counts.size + 1 or total == 0:
+        _draw_small_text(image, "No nonzero differences", (18, 62))
+        return image
+
+    left, right = 42, width - 16
+    top, bottom = 70, output_height - 42
+    plot_width = max(1, right - left)
+    plot_height = max(1, bottom - top)
+    cv2.rectangle(image, (left, top), (right, bottom), (70, 70, 70), 1)
+
+    max_count = float(counts.max())
+    bar_width = max(1, int(np.floor(plot_width / counts.size)))
+    for index, count in enumerate(counts):
+        if count <= 0.0 or max_count <= 0.0:
+            continue
+        x0 = left + int(round(index * plot_width / counts.size))
+        x1 = min(right - 1, x0 + bar_width - 1)
+        y0 = bottom - int(round(count / max_count * plot_height))
+        color = _histogram_bar_color(index / max(counts.size - 1, 1))
+        cv2.rectangle(image, (x0, y0), (x1, bottom - 1), color, -1)
+        text = str(int(count))
+        text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.28, 1)[0]
+        text_x = x0 + max(0, (x1 - x0 - text_size[0]) // 2)
+        text_y = max(38, y0 - 4)
+        _draw_small_text(
+            image,
+            text,
+            (text_x, text_y),
+            font_scale=0.28,
+            color=(245, 245, 245),
+        )
+
+    _draw_small_text(image, f"changed voxels: {total}", (18, output_height - 18))
+    _draw_small_text(image, f"{edges[0]:.1f}", (left - 2, bottom + 18))
+    _draw_small_text(image, f"{edges[-1]:.1f}", (right - 34, bottom + 18))
+    _draw_small_text(image, "linear count scale", (width - 126, top - 8))
+    return image
+
+
+def _histogram_bar_color(t: float) -> tuple[int, int, int]:
+    scalar = np.array([[int(round(np.clip(t, 0.0, 1.0) * 255.0))]], dtype=np.uint8)
+    color = cv2.applyColorMap(scalar, cv2.COLORMAP_VIRIDIS)[0, 0]
+    return int(color[0]), int(color[1]), int(color[2])
+
+
 def _occupied_depth_height_color_bgr(
     height: float,
     min_height: float,
@@ -296,6 +374,51 @@ def _occupied_depth_height_color_bgr(
     color += np.array([18.0, 18.0, 18.0], dtype=np.float32) * height_t
     color = np.clip(color, 0, 255).astype(np.uint8)
     return int(color[0]), int(color[1]), int(color[2])
+
+
+def _occupied_depth_height_colors_bgr(
+    heights: np.ndarray,
+    min_height: float,
+    max_height: float,
+    *,
+    depths: np.ndarray,
+    max_depth: Optional[float],
+) -> np.ndarray:
+    span = max(max_height - min_height, 1e-6)
+    height_t = np.clip((heights - min_height) / span, 0.0, 1.0)
+    if max_depth is None or max_depth <= 0.0:
+        depth_t = np.full_like(depths, 0.5, dtype=np.float64)
+    else:
+        depth_t = np.clip(depths / max_depth, 0.0, 1.0)
+
+    scalars = np.rint((1.0 - depth_t) * 255.0).astype(np.uint8).reshape(-1, 1)
+    colors = cv2.applyColorMap(scalars, cv2.COLORMAP_JET)[:, 0, :].astype(
+        np.float32
+    )
+    brightness = (0.62 + 0.38 * height_t).astype(np.float32)
+    colors *= brightness[:, None]
+    colors += np.array([18.0, 18.0, 18.0], dtype=np.float32) * height_t[:, None]
+    return np.clip(colors, 0, 255).astype(np.uint8)
+
+
+def _occupied_voxel_centers(voxel_map: SparseVoxelMap) -> np.ndarray:
+    centers = []
+    block_size = voxel_map.block_size
+    voxel_size = voxel_map.voxel_size
+    threshold = voxel_map._occupied_logodds
+    for block_index, block in voxel_map.iter_allocated_blocks():
+        mask = block.observed & (block.occupancy_logodds >= threshold)
+        local_x, local_y, local_z = np.nonzero(mask)
+        if len(local_x) == 0:
+            continue
+
+        block_origin = np.array(block_index, dtype=np.float64) * block_size
+        local = np.stack((local_x, local_y, local_z), axis=1).astype(np.float64)
+        centers.append((block_origin + local + 0.5) * voxel_size)
+
+    if not centers:
+        return np.empty((0, 3), dtype=np.float64)
+    return np.vstack(centers)
 
 
 def colorize_voxel_grid_bgr(grid: np.ndarray) -> np.ndarray:
@@ -475,6 +598,26 @@ def _draw_label(image: np.ndarray, text: str) -> None:
         cv2.FONT_HERSHEY_SIMPLEX,
         0.75,
         (255, 255, 255),
+        1,
+        cv2.LINE_AA,
+    )
+
+
+def _draw_small_text(
+    image: np.ndarray,
+    text: str,
+    origin: tuple[int, int],
+    *,
+    font_scale: float = 0.38,
+    color: tuple[int, int, int] = (225, 225, 225),
+) -> None:
+    cv2.putText(
+        image,
+        text,
+        origin,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale,
+        color,
         1,
         cv2.LINE_AA,
     )

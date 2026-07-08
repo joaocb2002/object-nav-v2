@@ -7,6 +7,9 @@ by responsibility:
 - `voxel.py`: Habitat-free mapping math and storage.
 - `habitat.py`: Habitat adapter code for depth units, camera pose, camera
   intrinsics, and ground-truth top-down map metrics.
+- `comparison.py`: optional side-by-side comparison of the standard voxel map
+  against the slower reference integration.
+- `raycast_numba.py`: optional native DDA ray traversal backend.
 - `visualization.py`: OpenCV renderers for the voxel map and Habitat map.
 - `point_cloud.py`: optional RGB-D point-cloud debugging utilities.
 
@@ -124,7 +127,7 @@ before passing `T_world_camera` to the mapper.
    `env.sim.get_agent_state().sensor_states`.
 5. `SparseVoxelMap.integrate_depth(...)` back-projects sampled pixels, transforms
    each endpoint into world space, raycasts from camera origin to endpoint, and
-   applies log-odds updates.
+   applies frame-level aggregated log-odds updates.
 
 For each valid depth ray:
 
@@ -134,6 +137,33 @@ For each valid depth ray:
 
 Invalid values, NaNs, non-positive depths, and depths outside the configured
 min/max range are ignored.
+
+`SparseVoxelMap.integrate_depth(...)` is the standard optimized path. It counts
+all free/occupied evidence for a frame first and then applies one clamped update
+per touched voxel. It still raycasts every sampled depth endpoint, so free-space
+evidence preserves the sampled sensor-ray geometry. The old immediate per-ray
+path is kept as
+`SparseVoxelMap.integrate_depth_reference(...)` for diagnostics and regression
+checks.
+
+The frame ray traversal has an optional native backend:
+
+- `raycast_backend="auto"`: use Numba when installed, otherwise Python.
+- `raycast_backend="python"`: force the pure-Python DDA loop.
+- `raycast_backend="numba"`: require the Numba DDA loop and raise if unavailable.
+
+With the Numba backend, numeric DDA traversal is native-accelerated and emits
+packed integer voxel keys directly. Counts are compacted from those keys and
+touched voxels are applied in block batches. Sparse block allocation and public
+map queries remain Python-owned so the dynamic sparse map stays easy to
+maintain.
+
+Use the reference path only when comparing behavior:
+
+```python
+voxel_map.integrate_depth(depth, intrinsics, T_world_camera, step)
+reference_map.integrate_depth_reference(depth, intrinsics, T_world_camera, step)
+```
 
 ## Raycasting And Occupancy
 
@@ -192,10 +222,75 @@ also provides navigation measurements such as `collisions` and step-count style
 measurements in its task registry/config store; add them through the Habitat
 config when a run needs them, rather than duplicating that state in this package.
 
+## Reference Comparison API
+
+`comparison.py` provides optional diagnostics without owning the standard map.
+The active `scripts/main.py` does not use these classes during normal runs.
+
+- `HabitatVoxelMapper`: the standard optimized mapper, using
+  `SparseVoxelMap.integrate_depth`.
+- `HabitatReferenceVoxelMapper`: the slower baseline mapper, using
+  `SparseVoxelMap.integrate_depth_reference`.
+- `HabitatVoxelMapComparison`: a metric/rendering helper that reads both maps
+  after they have been independently updated.
+
+Minimal usage in a temporary experiment:
+
+```python
+import time
+
+from object_nav.mapping.comparison import HabitatReferenceVoxelMapper, HabitatVoxelMapComparison, format_voxel_difference
+from object_nav.mapping.habitat import HabitatVoxelMapper
+
+voxel_mapper = HabitatVoxelMapper(cfg)
+reference_mapper = HabitatReferenceVoxelMapper(cfg)
+voxel_comparison = HabitatVoxelMapComparison()
+
+...
+t0 = time.perf_counter()
+voxel_mapper.integrate(env, obs, step)
+map_seconds = time.perf_counter() - t0
+
+t0 = time.perf_counter()
+reference_mapper.integrate(env, obs, step)
+reference_seconds = time.perf_counter() - t0
+
+voxel_metric = voxel_comparison.compare(
+    voxel_mapper.voxel_map,
+    reference_mapper.voxel_map,
+    step_index=step,
+    map_seconds=map_seconds,
+    reference_seconds=reference_seconds,
+)
+print(format_voxel_difference(voxel_metric))
+```
+
+The formatted metric reports:
+
+- `map`: standard integration time.
+- `reference`: reference integration time.
+- `speedup`: `reference / map`.
+- `observed(map/reference/union)`: observed voxel counts.
+- `only(map/reference)`: voxels allocated by only one map.
+- `state_diff`: different discrete states (`free`, `occupied`, or uncertain).
+- `free_occ_swaps`: severe disagreements where one map says free and the other
+  says occupied.
+- `logodds_changed`: shared voxels whose numeric log-odds differ.
+- `mean_abs_logodds` and `max_abs_logodds`: continuous disagreement magnitude.
+
+`HabitatVoxelMapComparison.render_maps(...)` can render a single combined
+diagnostic panel when needed. Keep this module opt-in: production-style runs
+should use only `HabitatVoxelMapper`.
+
 ## Rendered Views
 
-`HabitatVoxelMapper.render_maps(...)` returns one BGR image made of two voxel
-panels:
+`HabitatVoxelMapper` exposes separate render methods:
+
+- `render_camera_view(...)`: render only the robot-perspective 3D voxel view.
+- `render_topdown_map(...)`: render only the voxel-derived top-down map.
+- `render_maps(...)`: compose those two panels side by side.
+
+The underlying renderers are:
 
 1. `render_voxel_camera_view_bgr(...)`
    Projects observed 3D voxel centers into the current robot camera. This is a

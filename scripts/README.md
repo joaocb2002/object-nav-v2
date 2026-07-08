@@ -10,13 +10,17 @@ Edit these directly in `scripts/main.py`:
 
 - `CONFIG`: Habitat-Lab ObjectNav config path.
   Default: `habitat-lab/habitat/config/benchmark/nav/objectnav/objectnav_hm3d.yaml`
-- `SCENE`: HM3D scene id selected through `cfg.habitat.dataset.content_scenes`.
-  Default: `92vYG1q49FY`
+- `SCENE_CONTENT_DIR`: directory containing Habitat ObjectNav per-scene
+  `*.json.gz` content files. The script randomly chooses one file and strips
+  `.json.gz` before assigning `cfg.habitat.dataset.content_scenes = [SCENE]`.
+  Default: `data/datasets/objectnav/hm3d/v2/train/content`
+- `RUN_SEED`: seed used to choose the scene and passed to Habitat for episode
+  sampling. Default: derived from `time.time_ns()`.
 - `NUM_EPISODES`: number of episodes sampled by Habitat's episode iterator.
   Default: `1`
-- `cfg.habitat.seed`: currently set from `time.time_ns()` so sampled episodes
-  vary between runs. Replace it with a fixed integer for reproducible episode
-  sampling.
+- `SCENE`: selected by `choose_random_objectnav_scene(...)` before the Habitat
+  env is created. To force one scene, replace that assignment with a fixed id
+  such as `"92vYG1q49FY"`.
 
 Habitat still owns task-level settings such as max episode steps, action
 definitions, sensor resolution/FOV, depth range, and ObjectNav measurements.
@@ -24,7 +28,7 @@ Those live in the Habitat config referenced by `CONFIG`, not in this repo.
 
 ## Mapping Defaults
 
-Active depth-to-voxel integration is configured by
+Active depth-to-voxel integration settings are configured by
 `HabitatVoxelMapConfig` in `object_nav/mapping/habitat.py`:
 
 - `voxel_size = 0.10`
@@ -37,6 +41,8 @@ Active depth-to-voxel integration is configured by
 - `floor_max_height = 0.30`
 - `local_view_size_m = 8.0`
 - `local_pixels_per_meter = 60`
+- `raycast_backend = "auto"`: uses the optional Numba DDA backend when
+  installed, otherwise falls back to Python.
 
 To change these without a config file, instantiate the mapper with an explicit
 dataclass:
@@ -60,6 +66,33 @@ Core occupancy defaults live in `SparseVoxelMap` in `object_nav/mapping/voxel.py
 - `free_threshold = 0.35`
 
 The active script normally reaches those through `HabitatVoxelMapConfig`.
+
+## Active Voxel Mapping
+
+`scripts/main.py` uses only the standard optimized mapper:
+
+```python
+voxel_mapper = HabitatVoxelMapper(cfg)
+```
+
+At every step, the current depth observation is integrated once:
+
+```python
+voxel_mapper.integrate(env, obs, step)
+```
+
+The active visualization renders only the optimized map:
+
+```python
+show_navigation_maps(voxel_mapper.render_maps(...))
+```
+
+For one panel at a time, use `render_camera_view(...)` or
+`render_topdown_map(...)` on `voxel_mapper`.
+
+The slower reference mapper and comparison helpers remain available in
+`object_nav.mapping.comparison` for occasional regression checks, but they are
+not part of the normal `main.py` loop.
 
 ## Habitat Top-Down Map Defaults
 

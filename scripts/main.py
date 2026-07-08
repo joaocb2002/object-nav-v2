@@ -1,22 +1,27 @@
 import os
+import random
 import time
+
 import habitat
 from habitat import get_config
 from habitat.config import read_write
+
 from object_nav.agents import InteractiveKeyboardAgent
 from object_nav.mapping.habitat import HabitatVoxelMapper, enable_topdown_map_measure, show_habitat_topdown_map
 from object_nav.mapping.visualization import show_navigation_maps
 from object_nav.perception import YoloConfig, build_yolo_detector, close_perception_windows, print_observations, show_depth_rgb_detections
-from object_nav.utils import print_env, print_episode
+from object_nav.utils import choose_random_objectnav_scene, print_env, print_episode
 
 os.chdir("../habitat-lab")
 CONFIG = "habitat-lab/habitat/config/benchmark/nav/objectnav/objectnav_hm3d.yaml"
-SCENE = "92vYG1q49FY"
+SCENE_CONTENT_DIR = "data/datasets/objectnav/hm3d/v2/train/content"
 NUM_EPISODES = 1
+RUN_SEED = time.time_ns() % (2**32)
+SCENE = choose_random_objectnav_scene(SCENE_CONTENT_DIR, rng=random.Random(RUN_SEED))
 
 cfg = get_config(CONFIG)
 with read_write(cfg):
-    cfg.habitat.seed = time.time_ns() % (2**32)
+    cfg.habitat.seed = RUN_SEED
     cfg.habitat.dataset.content_scenes = [SCENE]
     cfg.habitat.environment.iterator_options.num_episode_sample = NUM_EPISODES
     enable_topdown_map_measure(cfg)
@@ -24,6 +29,9 @@ with read_write(cfg):
 agent = InteractiveKeyboardAgent()
 yolo_detector = build_yolo_detector(YoloConfig())
 voxel_mapper = HabitatVoxelMapper(cfg)
+
+print(f"Run seed: {RUN_SEED}")
+print(f"Selected scene: {SCENE}")
 
 with habitat.Env(config=cfg) as env:
     print_env(env)

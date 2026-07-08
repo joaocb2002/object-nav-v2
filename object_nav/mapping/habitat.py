@@ -23,6 +23,7 @@ class HabitatVoxelMapConfig:
     floor_max_height: float = 0.30
     local_view_size_m: float = 8.0
     local_pixels_per_meter: int = 60
+    raycast_backend: str = "auto"
 
 
 class HabitatVoxelMapper:
@@ -90,13 +91,20 @@ class HabitatVoxelMapper:
 
     def render_maps(self, env: Any, *, output_height: int) -> np.ndarray:
         """Render the 3D voxel POV and voxel-derived top-down map side by side."""
+        return _hstack_same_height(
+            [
+                self.render_camera_view(env, output_height=output_height),
+                self.render_topdown_map(env, output_height=output_height),
+            ]
+        )
+
+    def render_camera_view(self, env: Any, *, output_height: int) -> np.ndarray:
+        """Render only the robot-perspective 3D voxel view."""
         from object_nav.mapping.visualization import (
-            render_full_voxel_topdown_from_agent_bgr,
             render_voxel_camera_view_bgr,
         )
 
-        agent_state = env.sim.get_agent_state()
-        camera_image = render_voxel_camera_view_bgr(
+        return render_voxel_camera_view_bgr(
             self.voxel_map,
             depth_camera_transform(env, self.depth_uuid),
             self.camera_intrinsics,
@@ -107,18 +115,25 @@ class HabitatVoxelMapper:
             output_height=output_height,
             max_depth=self.config.max_ray_length,
         )
-        voxel_image = render_full_voxel_topdown_from_agent_bgr(
+
+    def render_topdown_map(self, env: Any, *, output_height: int) -> np.ndarray:
+        """Render only the voxel-derived top-down map."""
+        from object_nav.mapping.visualization import (
+            render_full_voxel_topdown_from_agent_bgr,
+        )
+
+        return render_full_voxel_topdown_from_agent_bgr(
             self.build_topdown_projection(env),
-            agent_state,
+            env.sim.get_agent_state(),
             output_height=output_height,
         )
-        return _hstack_same_height([camera_image, voxel_image])
 
     def _new_voxel_map(self) -> SparseVoxelMap:
         return SparseVoxelMap(
             voxel_size=self.config.voxel_size,
             block_size=self.config.block_size,
             max_ray_length=self.config.max_ray_length,
+            raycast_backend=self.config.raycast_backend,
         )
 
 
