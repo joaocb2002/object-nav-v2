@@ -21,6 +21,10 @@ from object_nav.mapping import (
     prob_to_logodds,
     raycast_voxels,
 )
+from object_nav.mapping.comparison import (
+    compare_voxel_maps,
+    format_integration_time_summary,
+)
 from object_nav.mapping.habitat import (
     camera_intrinsics_from_sensor_config,
     depth_observation_to_meters,
@@ -30,12 +34,18 @@ from object_nav.mapping.point_cloud import (
     load_colored_ply,
     write_colored_ply,
 )
+from object_nav.mapping.raycast_numba import NUMBA_AVAILABLE
 from object_nav.mapping.visualization import (
     render_full_voxel_topdown_from_agent_bgr,
     render_full_voxel_topdown_bgr,
+    render_logodds_difference_histogram_bgr,
     render_voxel_camera_view_bgr,
 )
-from object_nav.utils import make_run_output_dir
+from object_nav.utils import (
+    choose_random_objectnav_scene,
+    list_objectnav_scene_ids,
+    make_run_output_dir,
+)
 
 
 class FakeDepthSensorConfig:
@@ -222,6 +232,19 @@ class SparseVoxelMapTest(unittest.TestCase):
                 "2026-07-02_18-42-10__scene-92vYG1q49FY__episode-episode-1__script-main",
             )
 
+    def test_objectnav_scene_listing_strips_full_json_gz_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir)
+            (path / "scene_a.json.gz").touch()
+            (path / "scene_b.json.gz").touch()
+            (path / "metadata.json").touch()
+
+            self.assertEqual(list_objectnav_scene_ids(path), ["scene_a", "scene_b"])
+            self.assertIn(
+                choose_random_objectnav_scene(path),
+                {"scene_a", "scene_b"},
+            )
+
     def test_coordinate_conversion_handles_negative_coordinates(self) -> None:
         voxel_map = SparseVoxelMap(voxel_size=0.5, block_size=4)
 
@@ -295,6 +318,171 @@ class SparseVoxelMapTest(unittest.TestCase):
         far_voxel = voxel_map.get_voxel((0, 0, 4))
         self.assertTrue(far_voxel is None or not voxel_map.is_observed((0, 0, 4)))
 
+    def test_reference_depth_integration_single_point(self) -> None:
+        voxel_map = SparseVoxelMap(voxel_size=1.0, block_size=4)
+        depth = np.array([[3.2]], dtype=np.float32)
+        intrinsics = CameraIntrinsics(fx=1.0, fy=1.0, cx=0.0, cy=0.0)
+
+        voxel_map.integrate_depth_reference(
+            depth,
+            intrinsics,
+            np.eye(4),
+            step_index=7,
+        )
+
+        self.assertTrue(voxel_map.is_free((0, 0, 0)))
+        self.assertTrue(voxel_map.is_free((0, 0, 1)))
+        self.assertTrue(voxel_map.is_free((0, 0, 2)))
+        self.assertTrue(voxel_map.is_occupied((0, 0, 3)))
+
+    def test_default_and_reference_depth_integration_can_be_compared(self) -> None:
+        rng = np.random.default_rng(42)
+        depth = rng.uniform(0.2, 4.0, size=(24, 32)).astype(np.float32)
+        depth[0, 0] = np.nan
+        depth[1, 1] = 0.0
+        intrinsics = CameraIntrinsics(fx=20.0, fy=21.0, cx=15.5, cy=11.5)
+        transform = np.eye(4)
+        transform[:3, :3] = np.array(
+            [
+                [0.99, 0.0, 0.1],
+                [0.0, 1.0, 0.0],
+                [-0.1, 0.0, 0.99],
+            ]
+        )
+        transform[:3, 3] = np.array([0.2, 0.1, -0.3])
+        voxel_map = SparseVoxelMap(voxel_size=0.2, block_size=8, max_ray_length=3.5)
+        reference = SparseVoxelMap(voxel_size=0.2, block_size=8, max_ray_length=3.5)
+
+        voxel_map.integrate_depth(
+            depth,
+            intrinsics,
+            transform,
+            step_index=3,
+            pixel_stride=3,
+            min_depth=0.5,
+            max_depth=3.5,
+        )
+        reference.integrate_depth_reference(
+            depth,
+            intrinsics,
+            transform,
+            step_index=3,
+            pixel_stride=3,
+            min_depth=0.5,
+            max_depth=3.5,
+        )
+        metric = compare_voxel_maps(
+            voxel_map,
+            reference,
+            step_index=3,
+            map_seconds=0.0,
+            reference_seconds=0.0,
+        )
+
+        self.assertGreater(voxel_map.num_observed_voxels(), 0)
+        self.assertGreater(reference.num_observed_voxels(), 0)
+        self.assertGreaterEqual(
+            metric.union_observed,
+            max(metric.map_observed, metric.reference_observed),
+        )
+
+    @unittest.skipUnless(NUMBA_AVAILABLE, "Numba is not installed")
+    def test_numba_backend_matches_python_aggregation(self) -> None:
+        rng = np.random.default_rng(7)
+        depth = rng.uniform(0.4, 3.5, size=(18, 24)).astype(np.float32)
+        intrinsics = CameraIntrinsics(fx=18.0, fy=19.0, cx=11.5, cy=8.5)
+        transform = np.eye(4)
+        transform[:3, :3] = np.array(
+            [
+                [0.98, 0.0, 0.2],
+                [0.0, 1.0, 0.0],
+                [-0.2, 0.0, 0.98],
+            ]
+        )
+        python_map = SparseVoxelMap(
+            voxel_size=0.25,
+            block_size=8,
+            max_ray_length=3.0,
+            raycast_backend="python",
+        )
+        numba_map = SparseVoxelMap(
+            voxel_size=0.25,
+            block_size=8,
+            max_ray_length=3.0,
+            raycast_backend="numba",
+        )
+
+        python_map.integrate_depth(
+            depth,
+            intrinsics,
+            transform,
+            step_index=2,
+            pixel_stride=2,
+            min_depth=0.5,
+            max_depth=3.0,
+        )
+        numba_map.integrate_depth(
+            depth,
+            intrinsics,
+            transform,
+            step_index=2,
+            pixel_stride=2,
+            min_depth=0.5,
+            max_depth=3.0,
+        )
+        metric = compare_voxel_maps(
+            numba_map,
+            python_map,
+            step_index=2,
+            map_seconds=0.0,
+            reference_seconds=0.0,
+        )
+
+        self.assertEqual(metric.only_map, 0)
+        self.assertEqual(metric.only_reference, 0)
+        self.assertEqual(metric.state_disagreements, 0)
+        self.assertEqual(metric.max_abs_logodds, 0.0)
+
+    def test_voxel_comparison_counts_opposite_free_occupied_states(self) -> None:
+        voxel_map = SparseVoxelMap(voxel_size=1.0, block_size=4)
+        reference = SparseVoxelMap(voxel_size=1.0, block_size=4)
+        _set_voxel_logodds(voxel_map, (0, 0, 0), -5.0)
+        _set_voxel_logodds(reference, (0, 0, 0), 5.0)
+        _set_voxel_logodds(voxel_map, (1, 0, 0), 5.0)
+        _set_voxel_logodds(reference, (1, 0, 0), -5.0)
+        _set_voxel_logodds(voxel_map, (2, 0, 0), 1.0)
+        _set_voxel_logodds(reference, (2, 0, 0), 2.0)
+
+        metric = compare_voxel_maps(
+            voxel_map,
+            reference,
+            step_index=1,
+            map_seconds=0.0,
+            reference_seconds=0.0,
+        )
+
+        self.assertEqual(metric.opposite_state_disagreements, 2)
+        self.assertEqual(metric.map_free_reference_occupied, 1)
+        self.assertEqual(metric.map_occupied_reference_free, 1)
+        self.assertEqual(metric.logodds_histogram.total_different, 3)
+        self.assertEqual(metric.max_abs_logodds, 10.0)
+
+        image = render_logodds_difference_histogram_bgr(
+            metric.logodds_histogram,
+            output_height=120,
+        )
+        self.assertEqual(image.shape, (120, 360, 3))
+        self.assertGreater(int(image.sum()), 0)
+
+    def test_integration_time_summary_formats_min_max_average(self) -> None:
+        summary = format_integration_time_summary(
+            [0.1, 0.2, 0.3],
+            [1.0, 2.0],
+        )
+
+        self.assertIn("map min=0.100s max=0.300s avg=0.200s", summary)
+        self.assertIn("reference min=1.000s max=2.000s avg=1.500s", summary)
+
     def test_depth_integration_filters_invalid_depths(self) -> None:
         voxel_map = SparseVoxelMap(voxel_size=1.0)
         depth = np.array([[0.0, np.nan, -1.0, 2.0]], dtype=np.float32)
@@ -342,6 +530,18 @@ class SparseVoxelMapTest(unittest.TestCase):
         self.assertEqual(grid.data[free_row, free_col], FREE)
         self.assertEqual(grid.data[obs_row, obs_col], OCCUPIED)
         self.assertIn(UNKNOWN, grid.data)
+
+
+def _set_voxel_logodds(
+    voxel_map: SparseVoxelMap,
+    index: tuple[int, int, int],
+    logodds: float,
+) -> None:
+    block = voxel_map.get_or_create_block(voxel_map.voxel_index_to_block_index(index))
+    local = voxel_map.voxel_index_to_local_index(index)
+    block.occupancy_logodds[local] = logodds
+    block.observed[local] = True
+    block.last_update_step[local] = 1
 
 
 if __name__ == "__main__":
