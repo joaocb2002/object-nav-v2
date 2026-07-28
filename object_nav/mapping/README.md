@@ -50,7 +50,7 @@ In `scripts/main.py`, each episode creates or resets the same pieces:
    - `show_depth_rgb_detections(...)` shows Habitat depth beside RGB detections.
    - `show_navigation_maps(voxel_mapper.render_maps(...))` shows:
      - a front-facing 3D voxel view from the robot camera,
-     - our voxel-derived egocentric top-down map.
+     - our voxel-derived allocentric top-down map.
    - `show_habitat_topdown_map(...)` independently shows Habitat's
      ground-truth top-down map when desired.
    - the active agent returns an action, such as `move_forward`.
@@ -287,7 +287,8 @@ should use only `HabitatVoxelMapper`.
 `HabitatVoxelMapper` exposes separate render methods:
 
 - `render_camera_view(...)`: render only the robot-perspective 3D voxel view.
-- `render_topdown_map(...)`: render only the voxel-derived top-down map.
+- `render_topdown_map(...)`: render only the allocentric voxel-derived top-down
+  map.
 - `render_maps(...)`: compose those two panels side by side.
 
 The underlying renderers are:
@@ -295,12 +296,17 @@ The underlying renderers are:
 1. `render_voxel_camera_view_bgr(...)`
    Projects observed 3D voxel centers into the current robot camera. This is a
    direct egocentric 2D image of the 3D voxel structure.
-2. `render_full_voxel_topdown_from_agent_bgr(...)`
-   Samples the full voxel-derived top-down projection in a robot-oriented frame,
-   keeping robot-forward upward while showing the whole explored map.
+2. `render_full_voxel_topdown_bgr(...)`
+   Renders the voxel-derived top-down projection without rotating it into the
+   robot frame. The fixed image axes are Habitat world `+X` to the right and
+   `+Z` downward. The robot marker shows position and heading on that map.
+   `render_full_voxel_topdown_from_agent_bgr(...)` remains available when a
+   robot-oriented debug view is useful.
 `show_habitat_topdown_map(...)` is intentionally separate. It uses Habitat's
 `TopDownMap` visualization utilities to draw the official map, current agent
-marker, path/goal overlays, and fog-of-war when configured.
+marker, path/goal overlays, and fog-of-war when configured. Its display uses
+the same fixed axes and disables Habitat's automatic portrait-map rotation so
+the two marker headings remain directly comparable between scenes.
 
 ## Point Cloud Debugging
 

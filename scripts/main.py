@@ -60,6 +60,8 @@ with habitat.Env(config=cfg) as env:
 
         metrics = dict(env.get_metrics())
         metrics.pop("top_down_map", None)
+        print("\n\n")
+        print_episode(env.current_episode)
         print("Metrics:", metrics)
 
 close_perception_windows()

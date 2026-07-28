@@ -13,9 +13,9 @@ from object_nav.mapping.voxel import CameraIntrinsics, SparseVoxelMap, TopDownGr
 class HabitatVoxelMapConfig:
     """Runtime settings for Habitat depth integration."""
 
-    voxel_size: float = 0.10
+    voxel_size: float = 0.05
     block_size: int = 16
-    pixel_stride: int = 6
+    pixel_stride: int = 4
     max_ray_length: Optional[float] = 5.0
     obstacle_min_height: float = 0.20
     obstacle_max_height: float = 1.50
@@ -117,12 +117,12 @@ class HabitatVoxelMapper:
         )
 
     def render_topdown_map(self, env: Any, *, output_height: int) -> np.ndarray:
-        """Render only the voxel-derived top-down map."""
+        """Render only the allocentric voxel-derived top-down map."""
         from object_nav.mapping.visualization import (
-            render_full_voxel_topdown_from_agent_bgr,
+            render_full_voxel_topdown_bgr,
         )
 
-        return render_full_voxel_topdown_from_agent_bgr(
+        return render_full_voxel_topdown_bgr(
             self.build_topdown_projection(env),
             env.sim.get_agent_state(),
             output_height=output_height,

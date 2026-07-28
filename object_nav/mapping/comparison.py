@@ -95,7 +95,7 @@ class HabitatVoxelMapComparison:
         import cv2
 
         from object_nav.mapping.visualization import (
-            render_full_voxel_topdown_from_agent_bgr,
+            render_full_voxel_topdown_bgr,
             render_logodds_difference_histogram_bgr,
             render_voxel_camera_view_bgr,
         )
@@ -116,7 +116,7 @@ class HabitatVoxelMapComparison:
                 max_depth=voxel_mapper.config.max_ray_length,
                 label="Voxel 3D",
             ),
-            render_full_voxel_topdown_from_agent_bgr(
+            render_full_voxel_topdown_bgr(
                 voxel_mapper.build_topdown_projection(env),
                 agent_state,
                 output_height=output_height,
@@ -131,7 +131,7 @@ class HabitatVoxelMapComparison:
                 max_depth=reference_mapper.config.max_ray_length,
                 label="Reference 3D",
             ),
-            render_full_voxel_topdown_from_agent_bgr(
+            render_full_voxel_topdown_bgr(
                 reference_mapper.build_topdown_projection(env),
                 agent_state,
                 output_height=output_height,

@@ -19,6 +19,19 @@ VOXEL_MAP_COLORS_BGR = {
     FREE: np.array([215, 215, 215], dtype=np.uint8),
     OCCUPIED: np.array([40, 40, 220], dtype=np.uint8),
 }
+# State values are UNKNOWN=-1, FREE=0, OCCUPIED=1. NumPy's -1 index lets the
+# grid address this table directly without allocating a shifted index array.
+_VOXEL_MAP_COLOR_LUT_BGR = np.stack(
+    [
+        VOXEL_MAP_COLORS_BGR[FREE],
+        VOXEL_MAP_COLORS_BGR[OCCUPIED],
+        VOXEL_MAP_COLORS_BGR[UNKNOWN],
+    ]
+)
+_GEOMETRY_LEGEND = [
+    ("free", tuple(int(value) for value in VOXEL_MAP_COLORS_BGR[FREE])),
+    ("occupied", tuple(int(value) for value in VOXEL_MAP_COLORS_BGR[OCCUPIED])),
+]
 
 
 def show_navigation_maps(
@@ -54,13 +67,13 @@ def render_voxel_topdown_from_agent_bgr(
         local_forward = (center - rows) / pixels_per_meter
         world_x = (
             agent_position[0]
-            + np.outer(np.ones(size_px), local_right) * right[0]
-            + np.outer(local_forward, np.ones(size_px)) * forward[0]
+            + local_right[None, :] * right[0]
+            + local_forward[:, None] * forward[0]
         )
         world_z = (
             agent_position[2]
-            + np.outer(np.ones(size_px), local_right) * right[1]
-            + np.outer(local_forward, np.ones(size_px)) * forward[1]
+            + local_right[None, :] * right[1]
+            + local_forward[:, None] * forward[1]
         )
         col_index = np.floor(
             (world_x - topdown.origin[0]) / topdown.resolution
@@ -80,13 +93,7 @@ def render_voxel_topdown_from_agent_bgr(
 
     _draw_agent_marker(image)
     _draw_label(image, "Voxel map")
-    _draw_legend(
-        image,
-        [
-            ("free", tuple(int(v) for v in VOXEL_MAP_COLORS_BGR[FREE])),
-            ("occupied", tuple(int(v) for v in VOXEL_MAP_COLORS_BGR[OCCUPIED])),
-        ],
-    )
+    _draw_legend(image, _GEOMETRY_LEGEND)
     return _fit_to_height(image, output_height)
 
 
@@ -113,18 +120,14 @@ def render_full_voxel_topdown_from_agent_bgr(
         forward,
         local_bounds,
     )
-    image = colorize_voxel_grid_bgr(sampled)
-    resized, scale = _fit_to_height_nearest(image, output_height)
+    resized, scale = _colorize_voxel_grid_to_height_nearest(
+        sampled,
+        output_height,
+    )
     center = _agent_center_in_local_bounds(local_bounds, topdown.resolution, scale)
     _draw_agent_marker(resized, center=center)
     _draw_label(resized, label)
-    _draw_legend(
-        resized,
-        [
-            ("free", tuple(int(v) for v in VOXEL_MAP_COLORS_BGR[FREE])),
-            ("occupied", tuple(int(v) for v in VOXEL_MAP_COLORS_BGR[OCCUPIED])),
-        ],
-    )
+    _draw_legend(resized, _GEOMETRY_LEGEND)
     return resized
 
 
@@ -133,25 +136,22 @@ def render_full_voxel_topdown_bgr(
     agent_state: object,
     *,
     output_height: int,
+    label: str = "Voxel map",
 ) -> np.ndarray:
     """Render the full voxel-derived top-down map with the robot pose."""
     if topdown.data.size == 0:
         image = np.full((output_height, output_height, 3), 45, dtype=np.uint8)
-        _draw_label(image, "Voxel map")
+        _draw_label(image, label)
         return image
 
-    image = colorize_voxel_grid_bgr(np.flipud(topdown.data))
-    resized, scale = _fit_to_height_nearest(image, output_height)
+    resized, scale = _colorize_voxel_grid_to_height_nearest(
+        topdown.data,
+        output_height,
+    )
     center, direction = _agent_marker_in_topdown(agent_state, topdown, scale)
     _draw_agent_marker(resized, center=center, direction=direction)
-    _draw_label(resized, "Voxel map")
-    _draw_legend(
-        resized,
-        [
-            ("free", tuple(int(v) for v in VOXEL_MAP_COLORS_BGR[FREE])),
-            ("occupied", tuple(int(v) for v in VOXEL_MAP_COLORS_BGR[OCCUPIED])),
-        ],
-    )
+    _draw_label(resized, label)
+    _draw_legend(resized, _GEOMETRY_LEGEND)
     return resized
 
 
@@ -180,23 +180,27 @@ def render_voxel_camera_view_bgr(
     centers_h[:, :3] = centers_world
     centers_camera = centers_h @ T_camera_world.T
     z = centers_camera[:, 2]
-    valid = z > 0.0
+    valid_indices = np.flatnonzero(z > 0.0)
     if max_depth is not None:
-        valid &= z <= max_depth
-    if np.any(valid):
-        safe_z = np.where(z > 0.0, z, 1.0)
+        valid_indices = valid_indices[z[valid_indices] <= max_depth]
+
+    if len(valid_indices) > 0:
+        depths = z[valid_indices]
         u = np.rint(
-            intrinsics.fx * centers_camera[:, 0] / safe_z + intrinsics.cx
+            intrinsics.fx * centers_camera[valid_indices, 0] / depths
+            + intrinsics.cx
         ).astype(np.int32)
         v = np.rint(
-            intrinsics.fy * centers_camera[:, 1] / safe_z + intrinsics.cy
+            intrinsics.fy * centers_camera[valid_indices, 1] / depths
+            + intrinsics.cy
         ).astype(np.int32)
-        valid &= (u >= 0) & (u < width) & (v >= 0) & (v < height)
+        in_frame = (u >= 0) & (u < width) & (v >= 0) & (v < height)
+        valid_indices = valid_indices[in_frame]
+        depths = depths[in_frame]
+        u = u[in_frame]
+        v = v[in_frame]
 
-    projected = []
-    if np.any(valid):
-        valid_indices = np.flatnonzero(valid)
-        depths = z[valid_indices]
+    if len(valid_indices) > 0:
         radii = np.rint(
             voxel_map.voxel_size * intrinsics.fx / np.maximum(depths, 0.01) * 0.5
         ).astype(np.int32)
@@ -208,31 +212,28 @@ def render_voxel_camera_view_bgr(
             depths=depths,
             max_depth=max_depth,
         )
-        projected = list(
-            zip(
-                depths,
-                u[valid_indices],
-                v[valid_indices],
-                radii,
-                colors,
-            )
-        )
-
-    for _, u_px, v_px, radius, color in sorted(
-        projected,
-        key=lambda item: item[0],
-        reverse=True,
-    ):
-        cv2.rectangle(
-            image,
-            (max(0, int(u_px) - int(radius)), max(0, int(v_px) - int(radius))),
+        # Python's previous tuple sort was stable. A stable NumPy sort preserves
+        # the same draw order for equal-depth voxels while avoiding one tuple
+        # allocation per visible voxel.
+        draw_order = np.argsort(-depths, kind="stable").tolist()
+        rectangles = np.column_stack(
             (
-                min(width - 1, int(u_px) + int(radius)),
-                min(height - 1, int(v_px) + int(radius)),
-            ),
-            tuple(int(channel) for channel in color),
-            thickness=-1,
-        )
+                np.maximum(0, u - radii),
+                np.maximum(0, v - radii),
+                np.minimum(width - 1, u + radii),
+                np.minimum(height - 1, v + radii),
+            )
+        ).tolist()
+        colors_bgr = colors.tolist()
+        for index in draw_order:
+            left, top, right, bottom = rectangles[index]
+            cv2.rectangle(
+                image,
+                (left, top),
+                (right, bottom),
+                colors_bgr[index],
+                thickness=-1,
+            )
 
     _draw_label(image, label)
     legend_height = (min_height + max_height) * 0.5
@@ -278,10 +279,25 @@ def render_ground_truth_topdown_bgr(
 
     from habitat.utils.visualizations import maps
 
-    image_rgb = maps.colorize_draw_agent_and_fit_to_height(
-        topdown_metric,
-        output_height,
+    image_rgb = maps.colorize_topdown_map(
+        topdown_metric["map"],
+        topdown_metric["fog_of_war_mask"],
     )
+    for center, angle in zip(
+        topdown_metric["agent_map_coord"],
+        topdown_metric["agent_angle"],
+    ):
+        maps.draw_agent(
+            image=image_rgb,
+            agent_center_coord=center,
+            agent_rotation=angle,
+            agent_radius_px=min(image_rgb.shape[:2]) // 32,
+        )
+
+    # Habitat's combined convenience renderer rotates portrait maps by 90
+    # degrees. Keeping the raw map orientation makes this panel comparable to
+    # the voxel map across scenes: +X is right and +Z is down in both images.
+    image_rgb = _fit_to_height(image_rgb, output_height)
     image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
     _draw_label(image_bgr, "Habitat map")
     return image_bgr
@@ -408,12 +424,11 @@ def _occupied_voxel_centers(voxel_map: SparseVoxelMap) -> np.ndarray:
     threshold = voxel_map._occupied_logodds
     for block_index, block in voxel_map.iter_allocated_blocks():
         mask = block.observed & (block.occupancy_logodds >= threshold)
-        local_x, local_y, local_z = np.nonzero(mask)
-        if len(local_x) == 0:
+        local = np.argwhere(mask)
+        if len(local) == 0:
             continue
 
         block_origin = np.array(block_index, dtype=np.float64) * block_size
-        local = np.stack((local_x, local_y, local_z), axis=1).astype(np.float64)
         centers.append((block_origin + local + 0.5) * voxel_size)
 
     if not centers:
@@ -423,16 +438,16 @@ def _occupied_voxel_centers(voxel_map: SparseVoxelMap) -> np.ndarray:
 
 def colorize_voxel_grid_bgr(grid: np.ndarray) -> np.ndarray:
     """Convert a voxel top-down state grid to a BGR image."""
-    image = np.empty((*grid.shape, 3), dtype=np.uint8)
-    for value, color in VOXEL_MAP_COLORS_BGR.items():
-        image[grid == value] = color
-    return image
+    return _VOXEL_MAP_COLOR_LUT_BGR[grid]
 
 
 def _agent_horizontal_basis(agent_state: object) -> tuple[np.ndarray, np.ndarray]:
     import quaternion
 
-    rotation = quaternion.as_rotation_matrix(agent_state.rotation)
+    # Habitat's TopDownMap computes heading with the inverse agent rotation.
+    # Matching that convention keeps our allocentric marker turning the same
+    # way as Habitat's ground-truth map marker.
+    rotation = quaternion.as_rotation_matrix(agent_state.rotation.inverse())
     right_3d = rotation @ np.array([1.0, 0.0, 0.0])
     forward_3d = rotation @ np.array([0.0, 0.0, -1.0])
     right = _normalize_2d(
@@ -503,13 +518,13 @@ def _sample_topdown_in_agent_frame(
     origin = np.array([agent_position[0], agent_position[2]], dtype=np.float64)
     world_x = (
         origin[0]
-        + np.outer(np.ones(height), local_right) * right[0]
-        + np.outer(local_forward, np.ones(width)) * forward[0]
+        + local_right[None, :] * right[0]
+        + local_forward[:, None] * forward[0]
     )
     world_z = (
         origin[1]
-        + np.outer(np.ones(height), local_right) * right[1]
-        + np.outer(local_forward, np.ones(width)) * forward[1]
+        + local_right[None, :] * right[1]
+        + local_forward[:, None] * forward[1]
     )
 
     source_x0 = topdown.origin[0] - resolution * 0.5
@@ -546,9 +561,10 @@ def _agent_marker_in_topdown(
     position = np.asarray(agent_state.position, dtype=np.float64)
     col = (position[0] - topdown.origin[0]) / topdown.resolution
     row = (position[2] - topdown.origin[1]) / topdown.resolution
-    row = topdown.data.shape[0] - 1 - row
     _, forward = _agent_horizontal_basis(agent_state)
-    direction = np.array([forward[0], -forward[1]], dtype=np.float64)
+    # This is the vector represented by Habitat's agent sprite after applying
+    # TopDownMap.get_polar_angle. It uses raw map-image axes: +X right, +Z down.
+    direction = np.array([-forward[0], forward[1]], dtype=np.float64)
     return (int(round(col * scale)), int(round(row * scale))), direction
 
 
@@ -675,3 +691,21 @@ def _fit_to_height_nearest(
         interpolation=cv2.INTER_NEAREST,
     )
     return resized, scale
+
+
+def _colorize_voxel_grid_to_height_nearest(
+    grid: np.ndarray,
+    output_height: int,
+) -> tuple[np.ndarray, float]:
+    """Colorize and resize a state grid using the cheaper equivalent order."""
+    if grid.shape[0] >= output_height and grid.shape[0] != output_height:
+        scale = output_height / grid.shape[0]
+        width = max(1, int(round(grid.shape[1] * scale)))
+        resized_grid = cv2.resize(
+            grid,
+            (width, output_height),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        return colorize_voxel_grid_bgr(resized_grid), scale
+
+    return _fit_to_height_nearest(colorize_voxel_grid_bgr(grid), output_height)

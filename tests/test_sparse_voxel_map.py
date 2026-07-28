@@ -36,6 +36,8 @@ from object_nav.mapping.point_cloud import (
 )
 from object_nav.mapping.raycast_numba import NUMBA_AVAILABLE
 from object_nav.mapping.visualization import (
+    _agent_marker_in_topdown,
+    colorize_voxel_grid_bgr,
     render_full_voxel_topdown_from_agent_bgr,
     render_full_voxel_topdown_bgr,
     render_logodds_difference_histogram_bgr,
@@ -64,6 +66,19 @@ class FakeAgentState:
 
 
 class SparseVoxelMapTest(unittest.TestCase):
+    def test_voxel_grid_colorization_preserves_state_colors(self) -> None:
+        grid = np.array([[UNKNOWN, FREE, OCCUPIED]], dtype=np.int8)
+
+        image = colorize_voxel_grid_bgr(grid)
+
+        np.testing.assert_array_equal(
+            image,
+            np.array(
+                [[[45, 45, 45], [215, 215, 215], [40, 40, 220]]],
+                dtype=np.uint8,
+            ),
+        )
+
     def test_keyboard_controls_map_keys_to_actions(self) -> None:
         controls = KeyboardControls()
 
@@ -141,6 +156,42 @@ class SparseVoxelMapTest(unittest.TestCase):
 
         self.assertEqual(image.shape, (20, 40, 3))
         self.assertGreater(int(image.sum()), 0)
+
+    def test_allocentric_agent_marker_matches_habitat_topdown_convention(
+        self,
+    ) -> None:
+        import quaternion
+
+        topdown = TopDownGrid(
+            data=np.full((5, 5), FREE, dtype=np.int8),
+            origin=(0.0, 0.0),
+            resolution=1.0,
+            axes=(0, 2),
+            vertical_axis=1,
+        )
+        agent_state = FakeAgentState(
+            position=(2.0, 0.0, 3.0),
+            rotation=quaternion.quaternion(1.0, 0.0, 0.0, 0.0),
+        )
+
+        center, direction = _agent_marker_in_topdown(agent_state, topdown, 1.0)
+
+        self.assertEqual(center, (2, 3))
+        np.testing.assert_allclose(direction, np.array([0.0, -1.0]))
+
+        positive_yaw = math.radians(30.0)
+        agent_state.rotation = quaternion.quaternion(
+            math.cos(positive_yaw / 2.0),
+            0.0,
+            math.sin(positive_yaw / 2.0),
+            0.0,
+        )
+        _, direction = _agent_marker_in_topdown(agent_state, topdown, 1.0)
+        np.testing.assert_allclose(
+            direction,
+            np.array([-0.5, -math.sqrt(3.0) / 2.0]),
+            atol=1e-7,
+        )
 
     def test_full_egocentric_voxel_topdown_renderer_returns_whole_map(self) -> None:
         import quaternion
