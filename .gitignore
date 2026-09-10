@@ -221,3 +221,7 @@ __marimo__/
 models/**/*.pt
 !models/**/.gitkeep
 outputs/
+
+# Locally deployed semantic-segmentation models
+models/segformer/**
+!models/segformer/.gitkeep
