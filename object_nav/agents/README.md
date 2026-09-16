@@ -40,6 +40,21 @@ OpenCV GUI backends. An OpenCV window must be active for keyboard events to
 arrive reliably. The active ObjectNav config defines both look actions with a
 30-degree tilt.
 
+The checked-out Habitat-Lab `LookUpAction` and `LookDownAction` access
+`Habitat-Sim Agent.sensors`, but the installed Habitat-Sim 0.3.3 exposes the
+suite as `Agent._sensors`. Before constructing the environment, the active
+script selects repository-local compatible implementations:
+
+```python
+with read_write(cfg):
+    enable_compatible_look_actions(cfg)
+```
+
+This changes only the configured implementation types. Environment actions are
+still named `look_up` and `look_down`, and the adjacent Habitat installations
+remain unmodified. The compatibility implementation lives in
+`habitat_actions.py` and supports public, private, and scene-node sensor access.
+
 ## RandomActionAgent
 
 Use this for quick smoke tests that do not need manual input:

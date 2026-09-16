@@ -17,8 +17,9 @@ At each interactive ObjectNav step, `main.py` currently:
 
 1. integrates Habitat depth into a sparse, block-allocated 3D occupancy map;
 2. runs the calibrated 41-class SegFormer-B5 model on the RGB observation;
-3. displays the enabled RGB, depth, SegFormer, voxel-world, and Habitat-map
-   panels in one automatically tiled OpenCV dashboard;
+3. displays enabled RGB-with-semantic-overlay, depth, optionally class-labeled
+   SegFormer, 3D voxel-view, voxel top-down, and Habitat-map panels in one
+   automatically tiled OpenCV dashboard;
 4. accepts a keyboard action and eventually prints Habitat's ObjectNav metrics.
 
 SegFormer is the active perception direction. The older YOLO detector remains in
@@ -96,7 +97,7 @@ python3 scripts/main.py
 Controls are `W` forward, `A` left, `D` right, up/down arrows to look up/down,
 and `F` to stop. The ObjectNav config supplies both look actions with a 30°
 tilt. The script requires local HM3D ObjectNav data and a graphical session for
-its OpenCV dashboard.
+its OpenCV dashboard, which requests fullscreen mode when first opened.
 
 Run the full regression suite with:
 

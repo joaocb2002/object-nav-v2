@@ -14,7 +14,8 @@ keep heavyweight imports behind the model-specific helpers.
 - `yolo.py`: `YOLODetector`, detector construction, RGB/BGR input handling, and
   conversion from Ultralytics `Results` to `DetectionResult` objects.
 - `observations.py`: experimental helpers for printing Habitat observations and
-  displaying RGB, depth, semantic labels, or retained YOLO detections.
+  displaying RGB, depth, semantic labels, connected-component class names, or
+  retained YOLO detections.
 - `patches.py`: explicit Ultralytics monkey patch for softmax class probabilities.
 - `ultralytics_compat.py`: small compatibility imports for Ultralytics internals.
 
@@ -42,6 +43,25 @@ show_segmentation(result["labels"])
 Loading reads calibration and camera metadata from the checkpoint bundle. Do
 not pass a second temperature or bypass a camera mismatch. See
 `docs/segformer_b5_model_contract.md` for the full interface and evidence.
+
+The optional class-name renderer is model-agnostic when given an explicit
+`class_names` mapping:
+
+```python
+annotated = annotate_semantic_islands_bgr(
+    labels,
+    colorized_bgr,
+    class_names={3: "chair"},
+)
+```
+
+Without a mapping it lazily uses the installed `hm3d-semseg` `ID2LABEL`
+taxonomy. For each class it considers only the largest connected
+component and places a fixed-size, class-colored, black-outlined label at the
+component's maximum-inscribed distance-transform point. Every visible class is
+labeled, even when its largest component is one pixel; text may extend beyond
+that component but is clamped inside the image. The function changes only a
+copy of the visualization image, never the class-ID mask.
 
 ## Retained YOLO Usage
 
@@ -100,6 +120,8 @@ Leave `quantize=None` for the default FP32 behavior.
 ## Plotting
 
 Detection plotting uses Ultralytics `Results.plot()`. SegFormer visualization is
-a direct colorization of the predicted class-ID mask; the active script supplies
-it as an independent panel to the tiled dashboard and does not create an
-overlay.
+a direct colorization of the predicted class-ID mask. The active script reuses
+that color image for both an independent dashboard panel and a lightly blended
+RGB panel. Blending itself is the model-independent `blend_bgr_overlay(...)`
+utility under `object_nav.utils`, so it remains usable with another perception
+model.

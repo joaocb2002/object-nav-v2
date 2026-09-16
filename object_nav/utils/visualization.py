@@ -25,6 +25,7 @@ class DashboardConfig:
     columns: Optional[int] = None
     tile_width: int = 480
     tile_height: int = 360
+    fullscreen: bool = True
 
 
 class OpenCVDashboard:
@@ -33,6 +34,36 @@ class OpenCVDashboard:
     def __init__(self, config: DashboardConfig) -> None:
         self.config = config
         self._window_open = False
+
+    def open(self) -> None:
+        """Create and initialize the dashboard before expensive runtime setup."""
+        if self._window_open:
+            return
+        cv2.namedWindow(self.config.window_name, cv2.WINDOW_NORMAL)
+        if self.config.fullscreen:
+            cv2.setWindowProperty(
+                self.config.window_name,
+                cv2.WND_PROP_FULLSCREEN,
+                cv2.WINDOW_FULLSCREEN,
+            )
+        loading = np.full(
+            (self.config.tile_height, self.config.tile_width, 3),
+            24,
+            dtype=np.uint8,
+        )
+        cv2.putText(
+            loading,
+            "Initializing ObjectNav...",
+            (24, 48),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+        cv2.imshow(self.config.window_name, loading)
+        cv2.waitKey(1)
+        self._window_open = True
 
     def show(self, sources: Mapping[str, PanelSource]) -> None:
         """Evaluate enabled panel sources and show their tiled BGR images."""
@@ -46,9 +77,7 @@ class OpenCVDashboard:
         if not panels:
             return
 
-        if not self._window_open:
-            cv2.namedWindow(self.config.window_name, cv2.WINDOW_NORMAL)
-            self._window_open = True
+        self.open()
         cv2.imshow(
             self.config.window_name,
             compose_dashboard_bgr(panels, config=self.config),
@@ -143,6 +172,34 @@ def _fit_dashboard_panel(
 def rgb_to_bgr(rgb: np.ndarray) -> np.ndarray:
     """Convert an RGB image array to BGR for OpenCV display."""
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+
+
+def blend_bgr_overlay(
+    image_bgr: np.ndarray,
+    overlay_bgr: np.ndarray,
+    *,
+    opacity: float = 0.25,
+) -> np.ndarray:
+    """Blend a color overlay onto a BGR image with configurable opacity."""
+    if not 0.0 <= opacity <= 1.0:
+        raise ValueError("opacity must be between 0.0 and 1.0.")
+
+    image = _require_bgr_image(image_bgr, name="image_bgr")
+    overlay = _require_bgr_image(overlay_bgr, name="overlay_bgr")
+    if overlay.shape[:2] != image.shape[:2]:
+        overlay = cv2.resize(
+            overlay,
+            (image.shape[1], image.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+    return cv2.addWeighted(image, 1.0 - opacity, overlay, opacity, 0.0)
+
+
+def _require_bgr_image(image: np.ndarray, *, name: str) -> np.ndarray:
+    array = np.asarray(image)
+    if array.dtype != np.uint8 or array.ndim != 3 or array.shape[2] != 3:
+        raise ValueError(f"{name} must be a uint8 HxWx3 BGR image.")
+    return np.ascontiguousarray(array)
 
 
 def print_config(config: DictConfig) -> None:

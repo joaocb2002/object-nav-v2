@@ -8,6 +8,9 @@ stay lightweight and free of experiment policy.
 `visualization.py` provides:
 
 - `rgb_to_bgr(rgb)`: convert Habitat RGB arrays for OpenCV display.
+- `blend_bgr_overlay(image_bgr, overlay_bgr, opacity=0.25)`: transparently
+  combine any two display-ready images. Zero opacity preserves the base image;
+  one uses only the overlay.
 - `print_config(cfg)`: print the resolved Habitat/OmegaConf config.
 - `print_env(env)`: print high-level Habitat environment state.
 - `print_episode(ep, verbose=False)`: print the active episode id, scene, and
@@ -35,19 +38,30 @@ so a disabled panel does not perform display-only computation:
 
 ```python
 display = OpenCVDashboard(
-    DashboardConfig(enabled_panels=("RGB", "Voxel world"))
+    DashboardConfig(enabled_panels=("RGB", "3D voxel view"))
 )
+display.open()
 display.show(
     {
         "RGB": lambda: rgb_to_bgr(obs["rgb"]),
-        "Voxel world": lambda: voxel_mapper.render_maps(env, output_height=480),
+        "3D voxel view": lambda: voxel_mapper.render_camera_view(
+            env, output_height=480
+        ),
         "Disabled experiment": lambda: render_expensive_debug_image(),
     }
 )
 ```
 
 Panel producers must return display-ready `uint8` BGR arrays with shape
-`H x W x 3`, or `None` when no image is available.
+`H x W x 3`, or `None` when no image is available. `DashboardConfig.fullscreen`
+defaults to `True`; set it to `False` when a normal resizable window is desired.
+Calling `open()` early is optional, but the active script uses it before model
+and simulator setup so OpenCV's GUI backend initializes before other threaded
+native libraries. `show(...)` still opens the dashboard automatically if needed.
+
+`blend_bgr_overlay(...)` is deliberately perception-model agnostic. It resizes a
+mismatched overlay with nearest-neighbor interpolation and validates both inputs
+as `uint8` BGR images, making it reusable if SegFormer is replaced.
 
 ## Habitat Dataset Helpers
 

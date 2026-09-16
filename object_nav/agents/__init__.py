@@ -6,12 +6,17 @@ from typing import Any
 __all__ = [
     "InteractiveKeyboardAgent",
     "KeyboardControls",
+    "enable_compatible_look_actions",
     "RandomActionAgent",
     "RandomAgent",
 ]
 
 
 def __getattr__(name: str) -> Any:
+    if name == "enable_compatible_look_actions":
+        habitat_actions = import_module("object_nav.agents.habitat_actions")
+        return getattr(habitat_actions, name)
+
     if name in {"RandomActionAgent", "RandomAgent"}:
         random_agent = import_module("object_nav.agents.random")
         return getattr(random_agent, name)

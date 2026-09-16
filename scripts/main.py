@@ -1,49 +1,28 @@
 import os
 import random
 import time
-from pathlib import Path
+from functools import cache
 
 import habitat
 from habitat import get_config
 from habitat.config import read_write
 
-from object_nav.agents import InteractiveKeyboardAgent
-from object_nav.mapping.habitat import (
-    HabitatVoxelMapper,
-    enable_topdown_map_measure,
-    render_habitat_topdown_map,
-)
-from object_nav.perception import (
-    SegFormerConfig,
-    assert_segformer_camera,
-    build_segformer_segmenter,
-    colorize_segmentation_bgr,
-    depth_to_bgr,
-    print_observations,
-)
-from object_nav.utils import (
-    DashboardConfig,
-    OpenCVDashboard,
-    choose_random_objectnav_scene,
-    print_env,
-    print_episode,
-    rgb_to_bgr,
-)
+from object_nav.agents import InteractiveKeyboardAgent, enable_compatible_look_actions
+from object_nav.mapping.habitat import (HabitatVoxelMapper, enable_topdown_map_measure, render_habitat_topdown_map)
+from object_nav.perception import (SegFormerConfig, annotate_semantic_islands_bgr, assert_segformer_camera, build_segformer_segmenter, colorize_segmentation_bgr, depth_to_bgr, print_observations)
+from object_nav.utils import (DashboardConfig, OpenCVDashboard, blend_bgr_overlay, choose_random_objectnav_scene, print_env, print_episode, rgb_to_bgr)
+from main_config import HABITAT_LAB_ROOT, OBJECTNAV_CONFIG, SCENE_CONTENT_DIR
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-HABITAT_LAB_ROOT = PROJECT_ROOT.parent / "habitat-lab"
-CONFIG = (
-    HABITAT_LAB_ROOT
-    / "habitat-lab/habitat/config/benchmark/nav/objectnav/objectnav_hm3d.yaml"
-)
-SCENE_CONTENT_DIR = HABITAT_LAB_ROOT / "data/datasets/objectnav/hm3d/v2/train/content"
 NUM_EPISODES = 1
+SEGMENTATION_OVERLAY_OPACITY = 0.3
+SHOW_SEGMENTATION_LABELS = True
 DISPLAY = DashboardConfig(
     enabled_panels=(
-        "RGB",
+        "RGB + segmentation",
         "Depth",
         "SegFormer",
-        "Voxel world",
+        "3D voxel view",
+        "Voxel top-down map",
         "Ground truth map",
     )
 )
@@ -52,24 +31,22 @@ SCENE = choose_random_objectnav_scene(SCENE_CONTENT_DIR, rng=random.Random(RUN_S
 
 # Habitat dataset paths in the composed config are relative to this adjacent checkout.
 os.chdir(HABITAT_LAB_ROOT)
-cfg = get_config(str(CONFIG))
+cfg = get_config(str(OBJECTNAV_CONFIG))
 with read_write(cfg):
     cfg.habitat.seed = RUN_SEED
     cfg.habitat.dataset.content_scenes = [SCENE]
     cfg.habitat.environment.iterator_options.num_episode_sample = NUM_EPISODES
+    enable_compatible_look_actions(cfg)
     enable_topdown_map_measure(cfg)
 
 agent = InteractiveKeyboardAgent()
-segmenter = build_segformer_segmenter(SegFormerConfig())
-assert_segformer_camera(
-    segmenter,
-    CONFIG,
-    habitat_lab_root=HABITAT_LAB_ROOT,
-)
-voxel_mapper = HabitatVoxelMapper(cfg)
 dashboard = OpenCVDashboard(DISPLAY)
+dashboard.open()
+segmenter = build_segformer_segmenter(SegFormerConfig())
+assert_segformer_camera(segmenter, OBJECTNAV_CONFIG, habitat_lab_root=HABITAT_LAB_ROOT)
+voxel_mapper = HabitatVoxelMapper(cfg)
 
-print(f"Run seed: {RUN_SEED}")
+print(f"\nRun seed: {RUN_SEED}")
 print(f"Selected scene: {SCENE}")
 print(f"SegFormer checkpoint: {segmenter.checkpoint}")
 print(f"SegFormer device: {segmenter.device}")
@@ -91,16 +68,24 @@ with habitat.Env(config=cfg) as env:
             print_observations(obs)
             voxel_mapper.integrate(env, obs, step)
             output_height = obs["rgb"].shape[0]
+            segmentation = cache(lambda: segmenter(obs["rgb"]))
+            segmentation_bgr = cache(lambda: colorize_segmentation_bgr(segmentation()["labels"]))
+            segmentation_panel = cache(lambda: annotate_semantic_islands_bgr(segmentation()["labels"], segmentation_bgr()) if SHOW_SEGMENTATION_LABELS else segmentation_bgr())
             dashboard.show(
                 {
-                    "RGB": lambda: rgb_to_bgr(obs["rgb"]),
+                    "RGB + segmentation": lambda: blend_bgr_overlay(
+                        rgb_to_bgr(obs["rgb"]),
+                        segmentation_bgr(),
+                        opacity=SEGMENTATION_OVERLAY_OPACITY,
+                    ),
                     "Depth": lambda: (
                         depth_to_bgr(obs["depth"]) if "depth" in obs else None
                     ),
-                    "SegFormer": lambda: colorize_segmentation_bgr(
-                        segmenter(obs["rgb"])["labels"]
+                    "SegFormer": segmentation_panel,
+                    "3D voxel view": lambda: voxel_mapper.render_camera_view(
+                        env, output_height=output_height
                     ),
-                    "Voxel world": lambda: voxel_mapper.render_maps(
+                    "Voxel top-down map": lambda: voxel_mapper.render_topdown_map(
                         env, output_height=output_height
                     ),
                     "Ground truth map": lambda: render_habitat_topdown_map(

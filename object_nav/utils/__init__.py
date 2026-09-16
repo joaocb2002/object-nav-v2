@@ -6,6 +6,7 @@ from object_nav.utils.datasets import (
     list_objectnav_scene_ids,
 )
 from object_nav.utils.visualization import (
+    blend_bgr_overlay,
     DashboardConfig,
     OpenCVDashboard,
     compose_dashboard_bgr,
@@ -16,6 +17,7 @@ from object_nav.utils.visualization import (
 )
 
 __all__ = [
+    "blend_bgr_overlay",
     "choose_random_objectnav_scene",
     "compose_dashboard_bgr",
     "DashboardConfig",

@@ -47,9 +47,10 @@ In `scripts/main.py`, each episode creates or resets the same pieces:
    - `voxel_mapper.integrate(env, obs, step)` inserts the current depth frame
      into the sparse 3D voxel map.
    - Enabled display-only producers run lazily for the tiled dashboard.
-   - `voxel_mapper.render_maps(...)` produces the voxel-world panel with:
-     - a front-facing 3D voxel view from the robot camera,
-     - our voxel-derived allocentric top-down map.
+   - `voxel_mapper.render_camera_view(...)` produces the independent
+     front-facing 3D voxel dashboard panel.
+   - `voxel_mapper.render_topdown_map(...)` produces the independent
+     voxel-derived allocentric top-down dashboard panel.
    - `render_habitat_topdown_map(...)` independently produces Habitat's
      ground-truth dashboard panel when enabled.
    - the active agent returns an action, such as `move_forward`.

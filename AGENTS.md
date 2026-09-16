@@ -9,6 +9,8 @@ Keep changes small, explicit, and easy to read.
 - `scripts/` contains runnable experiment scripts.
 - `scripts/main.py` is the active experiment; earlier focused probes live under
   `scripts/experiments/`, and reproducibility checks live under `scripts/tools/`.
+- `scripts/main_config.py` contains stable local path constants for the active
+  entrypoint. Keep frequently tuned experiment knobs visible in `main.py`.
 - The local package should be installed in editable mode so scripts can import
   `object_nav` when run directly:
 
@@ -33,6 +35,8 @@ Keep changes small, explicit, and easy to read.
 - Do not add `sys.path` manipulation to scripts unless there is no cleaner
   option.
 - Python imports must use `object_nav`, not `object-nav`.
+- `scripts/main.py` may import its adjacent `main_config.py`; shared helpers
+  still belong in the `object_nav` package.
 
 ## Coding Style
 
@@ -42,6 +46,8 @@ Keep changes small, explicit, and easy to read.
 - Prefer simple code over clever abstractions.
 - Only introduce abstractions once there is a clear reuse point.
 - Avoid broad refactors while making narrow script or utility changes.
+- In `scripts/main.py`, keep related imports compact; prefer a parenthesized
+  one-line import group when the imported names remain recognizable.
 
 ## Habitat Scripts
 

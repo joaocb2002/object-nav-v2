@@ -6,6 +6,7 @@ from typing import Any
 from object_nav.perception.config import DEFAULT_YOLO_WEIGHTS_PATH, YoloConfig
 from object_nav.perception.detections import Detection, DetectionResult
 from object_nav.perception.observations import (
+    annotate_semantic_islands_bgr,
     close_perception_windows,
     colorize_segmentation_bgr,
     depth_to_bgr,
@@ -33,6 +34,7 @@ __all__ = [
     "YoloConfig",
     "SegFormerConfig",
     "assert_segformer_camera",
+    "annotate_semantic_islands_bgr",
     "build_segformer_segmenter",
     "build_yolo_detector",
     "close_perception_windows",
