@@ -9,7 +9,7 @@ action = agent.act(obs)
 ```
 
 `reset()` is called once per episode. `act(...)` returns a Habitat action name,
-for example `move_forward`, `turn_left`, `turn_right`, or `stop`.
+for example `move_forward`, `turn_left`, `look_up`, or `stop`.
 
 ## InteractiveKeyboardAgent
 
@@ -31,10 +31,14 @@ Default controls:
 - `W`: `move_forward`
 - `A`: `turn_left`
 - `D`: `turn_right`
+- up arrow: `look_up`
+- down arrow: `look_down`
 - `F`: `stop`
 
-The agent uses `cv2.waitKey`, so an OpenCV window must be active for keyboard
-events to arrive reliably.
+The agent uses `cv2.waitKeyEx`, so extended arrow-key events work across common
+OpenCV GUI backends. An OpenCV window must be active for keyboard events to
+arrive reliably. The active ObjectNav config defines both look actions with a
+30-degree tilt.
 
 ## RandomActionAgent
 

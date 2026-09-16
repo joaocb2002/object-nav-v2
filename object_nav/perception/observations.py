@@ -88,6 +88,49 @@ def show_depth_rgb_detections(
     cv2.imshow(window_name, plot_depth_rgb_detections(rgb, depth, result))
 
 
+def show_rgb_observation(
+    rgb: np.ndarray,
+    *,
+    window_name: str = "RGB",
+) -> None:
+    """Show one Habitat RGB observation in a separate OpenCV window."""
+    cv2.imshow(window_name, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+
+
+def show_depth_observation(
+    depth: np.ndarray | None,
+    *,
+    window_name: str = "Depth",
+) -> None:
+    """Show one Habitat depth observation in a separate OpenCV window."""
+    if depth is not None:
+        cv2.imshow(window_name, depth_to_bgr(depth))
+
+
+def colorize_segmentation_bgr(labels: np.ndarray) -> np.ndarray:
+    """Colorize a 2D MPCAT40 model-ID mask for OpenCV display."""
+    mask = np.asarray(labels)
+    if mask.ndim != 2:
+        raise ValueError(f"labels must be a 2D array, got shape {mask.shape}")
+
+    try:
+        from hm3d_semseg.visualization import colorize_mask
+    except ImportError as exc:
+        raise ImportError("The hm3d-semseg visualization utilities are required.") from exc
+
+    segmentation_rgb = colorize_mask(mask)
+    return cv2.cvtColor(segmentation_rgb, cv2.COLOR_RGB2BGR)
+
+
+def show_segmentation(
+    labels: np.ndarray,
+    *,
+    window_name: str = "SegFormer segmentation",
+) -> None:
+    """Show a SegFormer class-label image in a separate OpenCV window."""
+    cv2.imshow(window_name, colorize_segmentation_bgr(labels))
+
+
 def close_perception_windows() -> None:
     """Close OpenCV windows opened by perception display helpers."""
     cv2.destroyAllWindows()

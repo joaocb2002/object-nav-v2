@@ -1,12 +1,20 @@
 import os
 import random
+from pathlib import Path
+
 import cv2
 import habitat
 from habitat import get_config
 
-os.chdir("../habitat-lab")
-CONFIG = "habitat-lab/habitat/config/benchmark/nav/objectnav/objectnav_hm3d.yaml"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+HABITAT_LAB_ROOT = PROJECT_ROOT.parent / "habitat-lab"
+CONFIG = (
+    HABITAT_LAB_ROOT
+    / "habitat-lab/habitat/config/benchmark/nav/objectnav/objectnav_hm3d.yaml"
+)
 ACTIONS = ["move_forward", "turn_left", "turn_right"]
+
+os.chdir(HABITAT_LAB_ROOT)
 
 def rgb_to_bgr(rgb):
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
@@ -19,7 +27,7 @@ def print_episode(env):
     print("Scene:", ep.scene_id)
     print("Goal:", goal)
 
-cfg = get_config(CONFIG)
+cfg = get_config(str(CONFIG))
 
 with habitat.Env(config=cfg) as env:
     for _ in range(3):

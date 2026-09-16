@@ -8,7 +8,8 @@ The package is split by responsibility:
 - `agents/`: action policies used by scripts, such as keyboard and random agents.
 - `mapping/`: sparse geometry mapping, Habitat mapping adapters, map rendering,
   and optional point-cloud debugging.
-- `perception/`: YOLO loading, detection data, and per-frame perception display.
+- `perception/`: active SegFormer inference/display helpers and retained YOLO
+  detection code.
 - `utils/`: small script helpers for printing, image conversion, and run outputs.
 
 Keep entrypoints simple. `scripts/main.py` should describe the experiment flow:

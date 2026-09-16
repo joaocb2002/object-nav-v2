@@ -1,16 +1,23 @@
 import os
+from pathlib import Path
+
 import cv2
-import random
 import habitat
 from habitat import get_config
 from habitat.config import read_write
 
-os.chdir("../habitat-lab")
-CONFIG = "habitat-lab/habitat/config/benchmark/nav/objectnav/objectnav_hm3d.yaml"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+HABITAT_LAB_ROOT = PROJECT_ROOT.parent / "habitat-lab"
+CONFIG = (
+    HABITAT_LAB_ROOT
+    / "habitat-lab/habitat/config/benchmark/nav/objectnav/objectnav_hm3d.yaml"
+)
 FORWARD_KEY="w"
 LEFT_KEY="a"
 RIGHT_KEY="d"
 FINISH="f"
+
+os.chdir(HABITAT_LAB_ROOT)
 
 def rgb_to_bgr(rgb):
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
@@ -24,7 +31,7 @@ def print_episode(env):
     print("Goal:", goal)
 
 SCENE = "92vYG1q49FY"
-cfg = get_config(CONFIG)
+cfg = get_config(str(CONFIG))
 
 with read_write(cfg):
     cfg.habitat.dataset.content_scenes = [SCENE]

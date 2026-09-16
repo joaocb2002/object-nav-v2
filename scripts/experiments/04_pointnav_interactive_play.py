@@ -1,10 +1,18 @@
+import os
+from pathlib import Path
+
+import cv2
 import habitat
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
-import cv2
-import os
 
-# Change working directory to a specific path
-os.chdir("../habitat-lab")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+HABITAT_LAB_ROOT = PROJECT_ROOT.parent / "habitat-lab"
+CONFIG = (
+    HABITAT_LAB_ROOT
+    / "habitat-lab/habitat/config/benchmark/nav/pointnav/pointnav_habitat_test.yaml"
+)
+
+os.chdir(HABITAT_LAB_ROOT)
 
 FORWARD_KEY="w"
 LEFT_KEY="a"
@@ -17,7 +25,7 @@ def transform_rgb_bgr(image):
 
 def example():
     env = habitat.Env(
-        config=habitat.get_config("benchmark/nav/pointnav/pointnav_habitat_test.yaml")
+        config=habitat.get_config(str(CONFIG))
     )
 
     print("Environment creation successful")

@@ -9,7 +9,7 @@ description = "ObjectNav experiments and utilities."
 requires-python = ">=3.9"
 
 [project.optional-dependencies]
-perception = ["ultralytics", "torch", "torchvision"]
+perception = ["ultralytics==8.4.82", "torch", "torchvision"]
 mapping = ["numba"]
 
 [tool.setuptools.packages.find]

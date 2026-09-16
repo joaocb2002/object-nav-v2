@@ -5,6 +5,7 @@ import torchvision
 
 from object_nav.perception.ultralytics_compat import LOGGER, nms_rotated, xywh2xyxy
 
+AUDITED_ULTRALYTICS_VERSION = "8.4.82"
 _PATCH_APPLIED = False
 
 
@@ -16,6 +17,14 @@ def apply_yolo_softmax_patch(*, temperature: float = 2.4) -> None:
     - preserve the full class probability vector in Results/Boxes
     """
     global _PATCH_APPLIED
+    import ultralytics
+
+    if ultralytics.__version__ != AUDITED_ULTRALYTICS_VERSION:
+        raise RuntimeError(
+            "The YOLO softmax patch is only verified with Ultralytics "
+            f"{AUDITED_ULTRALYTICS_VERSION}; found {ultralytics.__version__}. "
+            "See docs/yolo_contract.md before updating the dependency or patch."
+        )
     if _PATCH_APPLIED:
         return
 

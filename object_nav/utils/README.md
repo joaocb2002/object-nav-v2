@@ -12,6 +12,11 @@ stay lightweight and free of experiment policy.
 - `print_env(env)`: print high-level Habitat environment state.
 - `print_episode(ep, verbose=False)`: print the active episode id, scene, and
   goal category.
+- `DashboardConfig`: ordered enabled panels plus tile/window settings.
+- `OpenCVDashboard`: lazily evaluate enabled BGR image producers and show them
+  in one automatically tiled OpenCV window.
+- `compose_dashboard_bgr(...)`: pure image compositor used by the dashboard and
+  tests.
 
 Typical script usage:
 
@@ -24,6 +29,25 @@ with habitat.Env(config=cfg) as env:
     ...
     print_episode(env.current_episode)
 ```
+
+Dashboard panels are selected and ordered in one place. Sources are callables,
+so a disabled panel does not perform display-only computation:
+
+```python
+display = OpenCVDashboard(
+    DashboardConfig(enabled_panels=("RGB", "Voxel world"))
+)
+display.show(
+    {
+        "RGB": lambda: rgb_to_bgr(obs["rgb"]),
+        "Voxel world": lambda: voxel_mapper.render_maps(env, output_height=480),
+        "Disabled experiment": lambda: render_expensive_debug_image(),
+    }
+)
+```
+
+Panel producers must return display-ready `uint8` BGR arrays with shape
+`H x W x 3`, or `None` when no image is available.
 
 ## Habitat Dataset Helpers
 

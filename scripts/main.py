@@ -1,25 +1,58 @@
 import os
 import random
 import time
+from pathlib import Path
 
 import habitat
 from habitat import get_config
 from habitat.config import read_write
 
 from object_nav.agents import InteractiveKeyboardAgent
-from object_nav.mapping.habitat import HabitatVoxelMapper, enable_topdown_map_measure, show_habitat_topdown_map
-from object_nav.mapping.visualization import show_navigation_maps
-from object_nav.perception import YoloConfig, build_yolo_detector, close_perception_windows, print_observations, show_depth_rgb_detections
-from object_nav.utils import choose_random_objectnav_scene, print_env, print_episode
+from object_nav.mapping.habitat import (
+    HabitatVoxelMapper,
+    enable_topdown_map_measure,
+    render_habitat_topdown_map,
+)
+from object_nav.perception import (
+    SegFormerConfig,
+    assert_segformer_camera,
+    build_segformer_segmenter,
+    colorize_segmentation_bgr,
+    depth_to_bgr,
+    print_observations,
+)
+from object_nav.utils import (
+    DashboardConfig,
+    OpenCVDashboard,
+    choose_random_objectnav_scene,
+    print_env,
+    print_episode,
+    rgb_to_bgr,
+)
 
-os.chdir("../habitat-lab")
-CONFIG = "habitat-lab/habitat/config/benchmark/nav/objectnav/objectnav_hm3d.yaml"
-SCENE_CONTENT_DIR = "data/datasets/objectnav/hm3d/v2/train/content"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+HABITAT_LAB_ROOT = PROJECT_ROOT.parent / "habitat-lab"
+CONFIG = (
+    HABITAT_LAB_ROOT
+    / "habitat-lab/habitat/config/benchmark/nav/objectnav/objectnav_hm3d.yaml"
+)
+SCENE_CONTENT_DIR = HABITAT_LAB_ROOT / "data/datasets/objectnav/hm3d/v2/train/content"
 NUM_EPISODES = 1
+DISPLAY = DashboardConfig(
+    enabled_panels=(
+        "RGB",
+        "Depth",
+        "SegFormer",
+        "Voxel world",
+        "Ground truth map",
+    )
+)
 RUN_SEED = time.time_ns() % (2**32)
 SCENE = choose_random_objectnav_scene(SCENE_CONTENT_DIR, rng=random.Random(RUN_SEED))
 
-cfg = get_config(CONFIG)
+# Habitat dataset paths in the composed config are relative to this adjacent checkout.
+os.chdir(HABITAT_LAB_ROOT)
+cfg = get_config(str(CONFIG))
 with read_write(cfg):
     cfg.habitat.seed = RUN_SEED
     cfg.habitat.dataset.content_scenes = [SCENE]
@@ -27,11 +60,20 @@ with read_write(cfg):
     enable_topdown_map_measure(cfg)
 
 agent = InteractiveKeyboardAgent()
-yolo_detector = build_yolo_detector(YoloConfig())
+segmenter = build_segformer_segmenter(SegFormerConfig())
+assert_segformer_camera(
+    segmenter,
+    CONFIG,
+    habitat_lab_root=HABITAT_LAB_ROOT,
+)
 voxel_mapper = HabitatVoxelMapper(cfg)
+dashboard = OpenCVDashboard(DISPLAY)
 
 print(f"Run seed: {RUN_SEED}")
 print(f"Selected scene: {SCENE}")
+print(f"SegFormer checkpoint: {segmenter.checkpoint}")
+print(f"SegFormer device: {segmenter.device}")
+print(f"SegFormer temperature: {segmenter.temperature}")
 
 with habitat.Env(config=cfg) as env:
     print_env(env)
@@ -48,10 +90,24 @@ with habitat.Env(config=cfg) as env:
             print(f"\nStep {step}")
             print_observations(obs)
             voxel_mapper.integrate(env, obs, step)
-            detections = yolo_detector.detect(obs["rgb"])
-            show_depth_rgb_detections(obs["rgb"], obs["depth"], detections)
-            show_navigation_maps(voxel_mapper.render_maps(env, output_height=obs["rgb"].shape[0]))
-            show_habitat_topdown_map(env, output_height=obs["rgb"].shape[0])
+            output_height = obs["rgb"].shape[0]
+            dashboard.show(
+                {
+                    "RGB": lambda: rgb_to_bgr(obs["rgb"]),
+                    "Depth": lambda: (
+                        depth_to_bgr(obs["depth"]) if "depth" in obs else None
+                    ),
+                    "SegFormer": lambda: colorize_segmentation_bgr(
+                        segmenter(obs["rgb"])["labels"]
+                    ),
+                    "Voxel world": lambda: voxel_mapper.render_maps(
+                        env, output_height=output_height
+                    ),
+                    "Ground truth map": lambda: render_habitat_topdown_map(
+                        env, output_height=output_height
+                    ),
+                }
+            )
 
             action = agent.act(obs)
             print("Action:", action)
@@ -64,4 +120,4 @@ with habitat.Env(config=cfg) as env:
         print_episode(env.current_episode)
         print("Metrics:", metrics)
 
-close_perception_windows()
+dashboard.close()

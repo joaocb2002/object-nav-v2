@@ -86,6 +86,8 @@ class SparseVoxelMapTest(unittest.TestCase):
         self.assertEqual(controls.action_for_key(ord("a")), "turn_left")
         self.assertEqual(controls.action_for_key(ord("d")), "turn_right")
         self.assertEqual(controls.action_for_key(ord("f")), "stop")
+        self.assertEqual(controls.action_for_key(2490368), "look_up")
+        self.assertEqual(controls.action_for_key(2621440), "look_down")
         self.assertIsNone(controls.action_for_key(ord("x")))
 
     def test_random_action_agent_selects_from_actions(self) -> None:

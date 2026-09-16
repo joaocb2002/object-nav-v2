@@ -1,9 +1,18 @@
+import os
+from pathlib import Path
+
 from habitat import get_config
 from omegaconf import DictConfig, ListConfig, OmegaConf
 
-config_path = "../habitat-lab/habitat-lab/habitat/config/benchmark/nav/objectnav/objectnav_hm3d.yaml"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+HABITAT_LAB_ROOT = PROJECT_ROOT.parent / "habitat-lab"
+CONFIG = (
+    HABITAT_LAB_ROOT
+    / "habitat-lab/habitat/config/benchmark/nav/objectnav/objectnav_hm3d.yaml"
+)
 
-cfg = get_config(config_path)
+os.chdir(HABITAT_LAB_ROOT)
+cfg = get_config(str(CONFIG))
 
 def print_config_fields(node, path="cfg"):
     if isinstance(node, DictConfig):
@@ -25,4 +34,3 @@ print(OmegaConf.to_yaml(cfg, resolve=True))
 
 print("All fields and keys:")
 print_config_fields(cfg)
-

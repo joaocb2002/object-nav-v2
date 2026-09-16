@@ -6,6 +6,9 @@ from object_nav.utils.datasets import (
     list_objectnav_scene_ids,
 )
 from object_nav.utils.visualization import (
+    DashboardConfig,
+    OpenCVDashboard,
+    compose_dashboard_bgr,
     print_config,
     print_env,
     print_episode,
@@ -14,8 +17,11 @@ from object_nav.utils.visualization import (
 
 __all__ = [
     "choose_random_objectnav_scene",
+    "compose_dashboard_bgr",
+    "DashboardConfig",
     "list_objectnav_scene_ids",
     "make_run_output_dir",
+    "OpenCVDashboard",
     "print_config",
     "print_env",
     "print_episode",

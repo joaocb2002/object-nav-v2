@@ -29,7 +29,7 @@ Habitat and debug helpers are imported from their modules so lightweight imports
 do not pull in optional runtime dependencies:
 
 ```python
-from object_nav.mapping.habitat import HabitatVoxelMapper, show_habitat_topdown_map
+from object_nav.mapping.habitat import HabitatVoxelMapper, render_habitat_topdown_map
 from object_nav.mapping.point_cloud import HabitatPointCloudRecorder
 ```
 
@@ -46,13 +46,12 @@ In `scripts/main.py`, each episode creates or resets the same pieces:
    - `print_observations(obs)` prints non-image observation values.
    - `voxel_mapper.integrate(env, obs, step)` inserts the current depth frame
      into the sparse 3D voxel map.
-   - YOLO runs on `obs["rgb"]`.
-   - `show_depth_rgb_detections(...)` shows Habitat depth beside RGB detections.
-   - `show_navigation_maps(voxel_mapper.render_maps(...))` shows:
+   - Enabled display-only producers run lazily for the tiled dashboard.
+   - `voxel_mapper.render_maps(...)` produces the voxel-world panel with:
      - a front-facing 3D voxel view from the robot camera,
      - our voxel-derived allocentric top-down map.
-   - `show_habitat_topdown_map(...)` independently shows Habitat's
-     ground-truth top-down map when desired.
+   - `render_habitat_topdown_map(...)` independently produces Habitat's
+     ground-truth dashboard panel when enabled.
    - the active agent returns an action, such as `move_forward`.
    - `env.step(action)` advances Habitat.
 
@@ -302,11 +301,13 @@ The underlying renderers are:
    `+Z` downward. The robot marker shows position and heading on that map.
    `render_full_voxel_topdown_from_agent_bgr(...)` remains available when a
    robot-oriented debug view is useful.
-`show_habitat_topdown_map(...)` is intentionally separate. It uses Habitat's
-`TopDownMap` visualization utilities to draw the official map, current agent
-marker, path/goal overlays, and fog-of-war when configured. Its display uses
-the same fixed axes and disables Habitat's automatic portrait-map rotation so
-the two marker headings remain directly comparable between scenes.
+`render_habitat_topdown_map(...)` independently uses Habitat's `TopDownMap`
+visualization utilities to draw the official map, current agent marker,
+path/goal overlays, and fog-of-war when configured. Its image uses the same
+fixed axes and disables Habitat's automatic portrait-map rotation so the two
+marker headings remain directly comparable between scenes. The older
+`show_habitat_topdown_map(...)` convenience wrapper remains available to open
+that image in its own window outside the active dashboard.
 
 ## Point Cloud Debugging
 
